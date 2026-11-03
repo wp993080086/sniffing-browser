@@ -6,24 +6,59 @@
 
 ## 当前状态
 
-骨架 + 极简可跑界面。核心链路（嗅探 → 队列 → 单文件下载 → HLS 分片下载解密合并）已写完，转码和相册导出留有接口待接原生。
+骨架 + 极简可跑界面。**Windows 端核心链路已端到端实测**：嗅探 → 队列 → 下载 → 分片合并 → 转码成 mp4/mp3。Android 与鸿蒙的嗅探代码已写但未在真机验证，相册导出与移动端转码仍待接原生。
 
 详细方案见 [docs/tech-design.md](docs/tech-design.md)。
 
 ## 已实现
 
-| 模块 | 内容 |
-| --- | --- |
-| 浏览器 | 地址栏、前进后退、刷新、加载进度 |
-| 嗅探（移动端） | `onLoadResource` + `shouldInterceptRequest` 双通道，请求头缓存（Referer/Cookie） |
-| 嗅探（Windows） | CDP `Network.responseReceived` / `requestWillBeSent` 事件推送，非阻塞 |
-| 资源面板 | 类型分组筛选、文件名/大小展示、一键入队 |
-| 下载队列 | 并发 3、状态机、取消、重试、进度独立通知 |
-| 单文件下载 | `.part` 临时文件 + rename，中断不污染目标文件 |
-| HLS | master 选最高码率、并发分片、AES-128 解密、fMP4 init 段处理、二进制合并、分片级续传 |
-| 日志与诊断 | 文件日志、全局错误捕获、通道计数器、诊断页 |
-| 导出 | 桌面纯 Dart 复制；移动端走 MethodChannel（原生待实现） |
-| 转码 | 队列与命令构造完成，执行层走原生 MethodChannel（待接 FFmpeg） |
+| 模块 | 内容 | 验证状态 |
+| --- | --- | --- |
+| 浏览器 | 地址栏、前进后退、刷新、加载进度 | Windows 实测 |
+| 嗅探（移动端） | `onLoadResource` + `shouldInterceptRequest` 双通道，请求头缓存（Referer/Cookie） | 未实测 |
+| 嗅探（Windows） | CDP `Network.responseReceived` / `requestWillBeSent` 事件推送，非阻塞 | Windows 实测 |
+| 资源面板 | 类型分组筛选、文件名/大小展示、一键入队 | Windows 实测 |
+| 下载队列 | 并发 3、状态机、取消、重试、进度独立通知 | 端到端测试 |
+| 单文件下载 | `.part` 临时文件 + rename，中断不污染目标文件 | 端到端测试 |
+| HLS | master 选最高码率、并发分片、AES-128 解密、fMP4 init 段处理、二进制合并、分片级续传 | 端到端测试 |
+| 转码（桌面） | 调用系统 ffmpeg：TS→MP4 无损转封装、音频→MP3 重编码，进度解析、取消 | 端到端测试 |
+| 日志与诊断 | 文件日志、全局错误捕获、通道计数器、诊断页 | Windows 实测 |
+| 导出 | 桌面纯 Dart 复制；移动端走 MethodChannel | 桌面可用 |
+| 转码（移动端） | MethodChannel 接口已定义 | 待接 FFmpeg |
+
+## FFmpeg（桌面端）
+
+桌面端直接调用本机 ffmpeg 进程，不引预编译包。查找顺序：
+
+1. 环境变量 `SNIFF_FFMPEG_DIR` 指向的目录
+2. 应用可执行文件同目录（或其 `bin/`、`ffmpeg/bin/` 子目录）—— 随应用分发时放这里
+3. `~/.devtools/ffmpeg/bin/`（本机开发用的位置）
+4. 系统 PATH
+
+`ffmpeg` 和 `ffprobe` 都要有。ffprobe 只用于取总时长算进度百分比，缺了转换照样能跑，只是不显示百分比。
+
+装到本机开发位置：
+
+```bash
+bash ~/.devtools/get-ffmpeg.sh
+```
+
+脚本从 npmmirror 拉静态构建，用 `gzip -t` 校验完整性并自动重试——这台机器到镜像的连接会中途断，一次拉不完。
+
+## 验证脚本
+
+除了常规单测，还有两套真实链路的端到端验证。默认跳过，需要显式开启：
+
+```bash
+# 下载链路：单文件 / HLS 合并 / AES-128 解密（12 项）
+dart run tools/verify_download.dart
+
+# 队列与转码：需要网络，ffmpeg 测试还需要本机有 ffmpeg
+RUN_E2E=1 flutter test test/download_queue_e2e_test.dart
+RUN_E2E=1 flutter test test/transcode_e2e_test.dart
+```
+
+`verify_download` 用本地 HTTP 服务提供 playlist，但分片是真实 CDN 的，所以解析、并发、解密、合并走的都是生产代码。AES 那组刻意不写 `IV`，逼着下载器按 RFC 8216 用媒体序列号推导——这处写错不会报错，只会产出乱码。
 
 ## 嗅探通道按平台分叉
 
@@ -73,8 +108,10 @@
 ## 未实现
 
 - `MediaExporter` 的 Android（MediaStore）/ HarmonyOS（showAssetsCreationDialog）实现
-- FFmpeg 接入：Android `ffmpeg_kit_flutter_new`、鸿蒙 `@ohos/ffmpeg-kit`
+- 移动端 FFmpeg 接入：Android `ffmpeg_kit_flutter_new`、鸿蒙 `@ohos/ffmpeg-kit`
+- `ohos/` 平台目录（需要 Flutter-OH SDK 与 DevEco Studio，本机尚未配置）
 - DASH 分片重组（当前直接提示不支持）
+- 代理支持：`dio` 默认不读 `HTTP_PROXY` 环境变量，需要走代理的网络环境目前直连
 
 ## 运行
 

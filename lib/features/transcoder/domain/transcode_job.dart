@@ -112,13 +112,23 @@ class TranscodeJob {
 
   String? error;
 
+  /// 同 [DownloadTask]：进程还没退出时界面可能已经关掉，之后回调要静音。
+  bool _disposed = false;
+
   void setStatus(TranscodeStatus next) {
-    if (_status == next) return;
+    if (_disposed || _status == next) return;
     _status = next;
     statusNotifier.value = next;
   }
 
+  void setProgress(double value) {
+    if (_disposed) return;
+    progress.value = value.clamp(0.0, 1.0);
+  }
+
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     progress.dispose();
     statusNotifier.dispose();
   }

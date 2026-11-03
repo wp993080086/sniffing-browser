@@ -58,13 +58,19 @@ class DownloadTask {
   final ValueNotifier<DownloadStatus> statusNotifier =
       ValueNotifier<DownloadStatus>(DownloadStatus.pending);
 
+  /// 已销毁。队列 dispose 之后，正在跑的任务仍会回调进来（网络请求不会
+  /// 因为界面关掉就立刻停下），此时再碰 notifier 会抛
+  /// "A ValueNotifier was used after being disposed"。加这个标志把后续回调静音。
+  bool _disposed = false;
+
   void setStatus(DownloadStatus next) {
-    if (_status == next) return;
+    if (_disposed || _status == next) return;
     _status = next;
     statusNotifier.value = next;
   }
 
   void updateBytes(int received, int? total) {
+    if (_disposed) return;
     receivedBytes = received;
     totalBytes = total ?? totalBytes;
     if (totalBytes != null && totalBytes! > 0) {
@@ -73,18 +79,26 @@ class DownloadTask {
   }
 
   void updateSegments(int done, int total) {
+    if (_disposed) return;
     segmentDone = done;
     if (total <= 0) return;
     progress.value = (done / total).clamp(0.0, 1.0);
   }
 
+  void setSpeed(double bytesPerSecond) {
+    if (_disposed) return;
+    speed.value = bytesPerSecond;
+  }
+
   void fail(String message) {
+    if (_disposed) return;
     error = message;
     setStatus(DownloadStatus.failed);
     speed.value = 0;
   }
 
   void complete(String path, {String? containerExt}) {
+    if (_disposed) return;
     savedPath = path;
     container = containerExt;
     progress.value = 1;
@@ -93,6 +107,8 @@ class DownloadTask {
   }
 
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     progress.dispose();
     speed.dispose();
     statusNotifier.dispose();

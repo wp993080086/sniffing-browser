@@ -5,6 +5,8 @@ import '../../../app/providers.dart';
 import '../../../core/platform/media_exporter.dart';
 import '../../../core/platform/platform_info.dart';
 import '../../../core/utils/format_util.dart';
+import '../../transcoder/data/transcode_queue.dart';
+import '../../transcoder/domain/transcode_job.dart';
 import '../domain/download_status.dart';
 import '../domain/download_task.dart';
 
@@ -87,6 +89,7 @@ class DownloadTile extends ConsumerWidget {
                     ),
                 ],
               ),
+              _TranscodeStatus(task: task),
             ],
           ),
         );
@@ -126,9 +129,28 @@ class _Menu extends ConsumerWidget {
 
   final DownloadTask task;
 
+  /// 这个任务能转成什么。已完成、有本地文件、格式匹配才给入口。
+  List<TranscodeKind> _availableKinds(WidgetRef ref) {
+    final String? path = task.savedPath;
+    if (path == null || task.status != DownloadStatus.completed) {
+      return const <TranscodeKind>[];
+    }
+
+    // 已经有转换任务（含未完成）就不再提供，避免重复入队
+    final TranscodeQueue queue = ref.read(transcodeQueueProvider);
+    final bool hasJob = queue.jobs.any((TranscodeJob j) => j.sourceTaskId == task.id);
+
+    if (hasJob) return const <TranscodeKind>[];
+    return <TranscodeKind>[
+      for (final TranscodeKind kind in TranscodeKind.values)
+        if (kind.appliesTo(task.type, path)) kind,
+    ];
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bool canExport = task.status == DownloadStatus.completed;
+    final List<TranscodeKind> kinds = _availableKinds(ref);
 
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert, size: 18),
@@ -150,10 +172,43 @@ class _Menu extends ConsumerWidget {
                       : '保存到音乐目录'),
             ),
           ),
+        for (final TranscodeKind kind in kinds)
+          PopupMenuItem<String>(
+            value: 'transcode:${kind.name}',
+            child: Text(kind.label),
+          ),
         const PopupMenuItem<String>(value: 'remove', child: Text('移除记录')),
       ],
       onSelected: (String value) async {
         final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+        if (value.startsWith('transcode:')) {
+          final String name = value.substring('transcode:'.length);
+          final TranscodeKind kind = TranscodeKind.values.firstWhere(
+            (TranscodeKind k) => k.name == name,
+          );
+          final String? path = task.savedPath;
+          if (path == null) return;
+
+          final TranscodeQueue queue = ref.read(transcodeQueueProvider);
+          if (!await queue.availability()) {
+            messenger
+              ..hideCurrentSnackBar()
+              ..showSnackBar(const SnackBar(content: Text('没有找到 ffmpeg，无法转换')));
+            return;
+          }
+
+          final TranscodeJob job = queue.enqueue(
+            sourcePath: path,
+            kind: kind,
+            sourceTaskId: task.id,
+            displayName: task.fileName,
+          );
+          messenger
+            ..hideCurrentSnackBar()
+            ..showSnackBar(SnackBar(content: Text('已加入转换队列：${job.displayName}')));
+          return;
+        }
+
         switch (value) {
           case 'cancel':
             ref.read(downloadQueueProvider).cancel(task.id);
@@ -168,6 +223,83 @@ class _Menu extends ConsumerWidget {
           case 'remove':
             ref.read(downloadQueueProvider).remove(task.id);
         }
+      },
+    );
+  }
+}
+
+/// 转换状态行。只在有对应转换任务时出现。
+class _TranscodeStatus extends ConsumerWidget {
+  const _TranscodeStatus({required this.task});
+
+  final DownloadTask task;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final TranscodeQueue queue = ref.watch(transcodeQueueProvider);
+    TranscodeJob? job;
+    for (final TranscodeJob candidate in queue.jobs) {
+      if (candidate.sourceTaskId == task.id) {
+        job = candidate;
+        break;
+      }
+    }
+    if (job == null) return const SizedBox.shrink();
+
+    final TranscodeJob current = job;
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return ListenableBuilder(
+      listenable: Listenable.merge(<Listenable>[
+        current.statusNotifier,
+        current.progress,
+      ]),
+      builder: (BuildContext context, Widget? _) {
+        final String text;
+        final Color color;
+        switch (current.status) {
+          case TranscodeStatus.pending:
+            text = '${current.kind.label}：等待中';
+            color = scheme.onSurfaceVariant;
+          case TranscodeStatus.running:
+            final int percent = (current.progress.value * 100).round();
+            text = '${current.kind.label}：$percent%';
+            color = scheme.primary;
+          case TranscodeStatus.completed:
+            text = '已转换为 ${current.kind.extension.toUpperCase()}';
+            color = scheme.primary;
+          case TranscodeStatus.failed:
+            text = '转换失败：${current.error ?? "未知原因"}';
+            color = scheme.error;
+          case TranscodeStatus.canceled:
+            text = '转换已取消';
+            color = scheme.onSurfaceVariant;
+        }
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  text,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: color),
+                ),
+              ),
+              if (current.status == TranscodeStatus.running)
+                IconButton(
+                  icon: const Icon(Icons.close, size: 14),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: '取消转换',
+                  onPressed: () =>
+                      ref.read(transcodeQueueProvider).cancel(current.id),
+                ),
+            ],
+          ),
+        );
       },
     );
   }

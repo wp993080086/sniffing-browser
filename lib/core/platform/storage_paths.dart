@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -22,7 +23,15 @@ class StoragePaths {
   static Directory? _temp;
 
   static Future<void> init() async {
-    final Directory root = await _resolveRoot();
+    await initWithRoot(await _resolveRoot());
+  }
+
+  /// 指定根目录初始化。
+  ///
+  /// 生产代码走 [init]；测试环境没有 path_provider 的平台实现，
+  /// 用这个直接指向临时目录，避免为了测调度逻辑去 mock 整个平台通道。
+  @visibleForTesting
+  static Future<void> initWithRoot(Directory root) async {
     await root.create(recursive: true);
     _root = root;
 

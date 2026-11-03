@@ -229,7 +229,8 @@ class DownloadQueue extends ChangeNotifier {
         if (elapsed - lastSampleMs >= 500) {
           final double seconds = (elapsed - lastSampleMs) / 1000;
           if (seconds > 0) {
-            task.speed.value = (received - lastSampleBytes) / seconds;
+            // 走方法而不是直写 notifier：下载中途队列被 dispose 时这里还会被调用
+            task.setSpeed((received - lastSampleBytes) / seconds);
           }
           lastSampleMs = elapsed;
           lastSampleBytes = received;

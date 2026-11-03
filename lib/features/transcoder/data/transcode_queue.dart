@@ -4,9 +4,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
+import '../../../core/platform/platform_info.dart';
 import '../../../core/platform/storage_paths.dart';
 import '../../../core/utils/hash_util.dart';
 import '../domain/transcode_job.dart';
+import 'system_ffmpeg_engine.dart';
 import 'transcode_engine.dart';
 
 /// 转换队列。
@@ -15,7 +17,13 @@ import 'transcode_engine.dart';
 /// 每个都会变慢，还可能触发移动端的内存压力限制，被系统直接杀掉。
 class TranscodeQueue extends ChangeNotifier {
   TranscodeQueue({TranscodeEngine? engine})
-      : _engine = engine ?? NativeTranscodeEngine();
+      : _engine = engine ?? _defaultEngine();
+
+  /// 桌面端可以直接跑系统 ffmpeg 进程，移动端沙箱不允许，只能走原生桥接。
+  static TranscodeEngine _defaultEngine() {
+    if (PlatformInfo.isDesktop) return SystemFfmpegEngine();
+    return NativeTranscodeEngine();
+  }
 
   final TranscodeEngine _engine;
   final List<TranscodeJob> _jobs = <TranscodeJob>[];
@@ -74,6 +82,10 @@ class TranscodeQueue extends ChangeNotifier {
     final TranscodeJob? job = _find(jobId);
     if (job == null) return;
     if (job.status == TranscodeStatus.running) {
+      // 立刻反映到 UI：用户点了取消，状态就该变，不该等进程真正退出。
+      // 如果进程已经跑完（kill 落空的竞态），_run 里会看到状态是 canceled 并保持它。
+      job.setStatus(TranscodeStatus.canceled);
+      _safeNotify();
       unawaited(_engine.cancel(jobId));
     } else if (job.status == TranscodeStatus.pending) {
       job.setStatus(TranscodeStatus.canceled);
@@ -85,7 +97,7 @@ class TranscodeQueue extends ChangeNotifier {
     final TranscodeJob? job = _find(jobId);
     if (job == null || !job.status.isFinished) return;
     job.error = null;
-    job.progress.value = 0;
+    job.setProgress(0);
     job.setStatus(TranscodeStatus.pending);
     _safeNotify();
     _pump();
@@ -123,22 +135,38 @@ class TranscodeQueue extends ChangeNotifier {
 
     try {
       if (!await availability()) {
-        throw UnsupportedError('当前平台尚未接入 FFmpeg');
+        throw UnsupportedError(
+          PlatformInfo.isDesktop
+              ? '没有找到 ffmpeg，请安装后重试'
+              : '当前平台尚未接入 FFmpeg',
+        );
       }
       await _engine.run(
         inputPath: job.sourcePath,
         outputPath: job.outputPath,
         kind: job.kind,
         onProgress: (double value) {
-          job.progress.value = value.clamp(0.0, 1.0);
+          job.setProgress(value);
         },
         isCancelled: () => job.status == TranscodeStatus.canceled,
       );
-      job.progress.value = 1;
-      job.setStatus(TranscodeStatus.completed);
+      job.setProgress(1);
+      // 取消和完成可能同时发生（kill 送达前进程已退出），以用户意图为准。
+      if (job.status != TranscodeStatus.canceled) {
+        job.setStatus(TranscodeStatus.completed);
+      }
+    } on TranscodeCancelled {
+      job.setProgress(0);
+      job.setStatus(TranscodeStatus.canceled);
     } catch (e) {
-      job.error = e.toString();
-      job.setStatus(TranscodeStatus.failed);
+      // 转换途中被取消时，引擎抛的可能是进程被杀导致的通用错误，
+      // 这里再判一次状态，避免把用户主动取消显示成失败。
+      if (job.status == TranscodeStatus.canceled) {
+        job.setProgress(0);
+      } else {
+        job.error = e.toString();
+        job.setStatus(TranscodeStatus.failed);
+      }
     } finally {
       _isRunning = false;
       _safeNotify();
