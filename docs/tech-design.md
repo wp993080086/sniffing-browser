@@ -78,6 +78,13 @@ ROM 6.0.0.120 SP6
 
 Windows 走 `flutter_inappwebview` 的独立实现包 `flutter_inappwebview_windows`，底层是 Microsoft Edge WebView2。
 
+> **实测补充（阶段 0，2026-11-03）**：主包 `flutter_inappwebview` 6.1.5 的依赖里只有
+> `_android` / `_ios` / `_macos`，**不会自动带上 Windows 实现**，必须在 `pubspec.yaml`
+> 里显式添加 `flutter_inappwebview_windows: ^0.6.0`，否则 Windows 上 `InAppWebView`
+> 直接抛 `UnimplementedError`。
+> 另外该插件的构建脚本依赖 **NuGet** 拉取 WebView2 SDK、WIL 和 nlohmann.json，
+> 机器上没有 `nuget.exe` 会以 `NUGET-NOTFOUND` 失败，与代码无关。
+
 **成熟度差异**：该实现包当前为 0.5 / 0.6 级别（Android 侧为 1.1.x）。关键能力 `shouldInterceptRequest` 直到 0.5.0 才实现，属于较新的功能。
 
 **嗅探通道可能退化**：移动端采用「`onLoadResource` 主嗅探 + `shouldInterceptRequest` 采请求头」双通道。但 Windows 的 changelog 仅记录实现了 `onLoadResourceWithCustomScheme`，未提及普通 `onLoadResource`。若确实不支持，Windows 只能走 `shouldInterceptRequest` 单通道，每次调用需跨平台通道往返等待，资源密集页面会有额外开销。**需在阶段 0 实测确认。**

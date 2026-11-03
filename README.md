@@ -37,6 +37,13 @@ flutter run -d windows      # 桌面
 flutter run -d <android>    # Android
 ```
 
+### Windows 构建前提
+
+- **WebView2 Runtime**：Win11 与新版 Win10 自带，缺失时从微软官网装 Evergreen Runtime
+- **NuGet**：`flutter_inappwebview_windows` 通过 NuGet 拉取 WebView2 SDK 和 WIL，缺了会报
+  `NUGET-NOTFOUND`，构建直接失败。把 `nuget.exe` 放进 PATH 即可（本项目实测放在
+  `~/.devtools/nuget.exe`，构建时前置到 PATH）
+
 本机若配置了 HTTP 代理，`flutter test` / `flutter run` 可能因为 flutter_tester 的
 localhost WebSocket 被代理拦截而报 `Invalid WebSocket upgrade request`。加环境变量即可：
 
