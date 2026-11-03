@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sniffing_browser/features/downloader/data/hls/m3u8_models.dart';
 import 'package:sniffing_browser/features/downloader/data/hls/m3u8_parser.dart';
+import 'package:sniffing_browser/features/sniffer/data/sniffer_service.dart';
 import 'package:sniffing_browser/features/sniffer/domain/media_classifier.dart';
 import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
 
@@ -34,6 +35,45 @@ void main() {
         MediaClassifier.classifyUrl('https://a.com/api/list'),
         MediaType.other,
       );
+    });
+  });
+
+  group('SnifferService', () {
+    test('新捕获的排在首位，重复 URL 不重复入列', () {
+      final SnifferService sniffer = SnifferService();
+      sniffer.capture(url: 'https://a.com/1.jpg');
+      sniffer.capture(url: 'https://a.com/2.png');
+      // 同一个地址再报一次（CDP 会为重定向、缓存命中重复推送）
+      sniffer.capture(url: 'https://a.com/1.jpg');
+
+      expect(sniffer.count, 2);
+      expect(sniffer.items.first.url, 'https://a.com/2.png');
+      expect(sniffer.items.last.url, 'https://a.com/1.jpg');
+
+      sniffer.dispose();
+    });
+
+    test('非媒体地址不进入列表', () {
+      final SnifferService sniffer = SnifferService();
+      expect(sniffer.capture(url: 'https://a.com/app.js'), isNull);
+      expect(sniffer.capture(url: 'https://a.com/style.css'), isNull);
+      expect(
+        sniffer.capture(url: 'https://www.google-analytics.com/collect'),
+        isNull,
+      );
+      expect(sniffer.count, 0);
+
+      sniffer.dispose();
+    });
+
+    test('清空后列表长度为 0', () {
+      final SnifferService sniffer = SnifferService();
+      sniffer.capture(url: 'https://a.com/1.jpg');
+      expect(sniffer.count, 1);
+      sniffer.clear();
+      expect(sniffer.count, 0);
+
+      sniffer.dispose();
     });
   });
 

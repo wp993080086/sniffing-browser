@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../diagnostics/presentation/diagnostics_page.dart';
 import '../../downloader/presentation/download_page.dart';
 import '../../sniffer/data/sniffer_service.dart';
 import '../../sniffer/presentation/resource_panel.dart';
@@ -42,6 +43,15 @@ class BrowserPage extends ConsumerWidget {
                 ),
               );
             },
+          ),
+          IconButton(
+            tooltip: '诊断日志',
+            icon: const Icon(Icons.bug_report_outlined, size: 20),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => const DiagnosticsPage(),
+              ),
+            ),
           ),
           const SizedBox(width: 4),
         ],

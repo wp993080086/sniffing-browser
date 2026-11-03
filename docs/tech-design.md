@@ -85,13 +85,39 @@ Windows 走 `flutter_inappwebview` 的独立实现包 `flutter_inappwebview_wind
 > 另外该插件的构建脚本依赖 **NuGet** 拉取 WebView2 SDK、WIL 和 nlohmann.json，
 > 机器上没有 `nuget.exe` 会以 `NUGET-NOTFOUND` 失败，与代码无关。
 
-**成熟度差异**：该实现包当前为 0.5 / 0.6 级别（Android 侧为 1.1.x）。关键能力 `shouldInterceptRequest` 直到 0.5.0 才实现，属于较新的功能。
+**成熟度差异**：该实现包当前为 0.6 级别（Android 侧为 1.1.x）。
 
-**嗅探通道可能退化**：移动端采用「`onLoadResource` 主嗅探 + `shouldInterceptRequest` 采请求头」双通道。但 Windows 的 changelog 仅记录实现了 `onLoadResourceWithCustomScheme`，未提及普通 `onLoadResource`。若确实不支持，Windows 只能走 `shouldInterceptRequest` 单通道，每次调用需跨平台通道往返等待，资源密集页面会有额外开销。**需在阶段 0 实测确认。**
+**嗅探通道：移动端那套在 Windows 上不可用，必须换 CDP。**
 
-**独有能力：CDP**。WebView2 支持 `CallDevToolsProtocolMethodAsync`，可通过 `Network.getResponseBody` 直接获取响应体，从而跳过「拦 URL 再重下」这一轮请求。这是移动端不具备的能力。
+这条是实测结论，不是推测。读 `flutter_inappwebview_windows` 0.6.0 的 C++ 源码并实际运行后确认：
 
-代价是需要自写 WebView2 C++ 插件；且有实践反馈指出 CDP 与 WebView2 自带事件均会漏掉部分请求，完整性不如 CEF。**第一版不实现，作为后续增强项记录。**
+1. **`onLoadResource` 根本不存在。** 原生侧只注册了 `onLoadResourceWithCustomScheme`，
+   从来没有读取过 `useOnLoadResource` 这个设置。文档早期写的「双通道兜底」在 Windows
+   上是假的，实际只剩一条通道。
+2. **剩下的那条 `shouldInterceptRequest` 会阻塞页面。** 插件注册的是：
+
+   ```cpp
+   AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)
+   ```
+
+   通配符 + 全资源类型。每个请求进来都先 `GetDeferral()` 挂起，再 `InvokeMethod` 到
+   Dart，**必须等 Dart 回话才 `deferral->Complete()` 放行**。打开一个普通首页有两三百
+   个请求，全部串行排队等 Flutter 主 isolate 逐个处理，而主 isolate 同时在跑渲染 ——
+   表现就是页面卡死、窗口无响应。
+
+因此 Windows 端的嗅探只能用 **CDP 事件推送**：
+
+| 通道 | 用途 | 是否阻塞 |
+| --- | --- | --- |
+| `Network.responseReceived` | 发现资源（url + mimeType + 资源类型） | 否 |
+| `Network.requestWillBeSent` | 采集请求头（Referer / Cookie，下载必需） | 否 |
+
+插件初始化时已经默认执行了 `Network.enable`，`addDevToolsProtocolEventListener`
+也有原生实现，所以这条路不需要写 C++ 插件。代码见 `lib/features/sniffer/data/cdp_sniffer.dart`。
+
+**代价**：CDP 事件不给响应体。但本项目本来就走「拿到 URL 自己重新请求」的路线，没有损失。
+`getResponseBody` 可以作为后续增强（插件已暴露 `callDevToolsProtocolMethod`，能直接调），
+用来处理需要签名参数、二次请求拿不到的地址。**第一版不做。**
 
 **存储最简单**：Windows 无相册概念，图片 / 视频 / 音频统一写入文件系统目录，无需 MediaStore 或 photoAccessHelper，省掉整个导出适配层。
 

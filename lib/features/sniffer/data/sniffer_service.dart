@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/logging/app_log.dart';
 import '../../../core/utils/hash_util.dart';
 import '../domain/media_classifier.dart';
 import '../domain/media_item.dart';
@@ -26,7 +28,14 @@ class SnifferService extends ChangeNotifier {
   /// 当前页面地址，用于补 Referer 和展示来源。
   String? _currentPageUrl;
 
-  List<MediaItem> get items => List<MediaItem>.unmodifiable(_items.values);
+  /// 通知合并。CDP 下一个首页能推来几百个事件，逐个 notifyListeners
+  /// 会让资源列表按事件频率重建，直接把主 isolate 拖满。
+  Timer? _notifyTimer;
+
+  /// 列表顺序：内部按「旧 → 新」追加，对外按「新 → 旧」返回。
+  /// 这样新增是 O(1)；之前的写法每次插入都要复制整个列表（O(n)）。
+  List<MediaItem> get items =>
+      List<MediaItem>.unmodifiable(_items.values.toList().reversed);
 
   String? get currentPageUrl => _currentPageUrl;
 
@@ -109,24 +118,40 @@ class SnifferService extends ChangeNotifier {
       requestHeaders: headersFor(url),
     );
 
-    // 新条目插到最前面，用户看到的就是最新捕获的
-    final List<MediaItem> reordered = <MediaItem>[item, ..._items.values];
-    _items.clear();
-    for (final MediaItem value in reordered) {
-      _items[value.id] = value;
-    }
+    // 追加到末尾（`items` 会反转成最新在前），O(1)。
+    _items[id] = item;
 
-    // 超出上限时丢最旧的（队尾）
+    // 超出上限时丢掉最旧的，也就是队首。
     while (_items.length > AppConstants.maxSniffedItems) {
-      _items.remove(_items.keys.last);
+      _items.remove(_items.keys.first);
     }
 
-    notifyListeners();
+    AppLog.instance.bump('sniffer.captured');
+    _notifySoon();
     return item;
   }
 
+  /// 合并通知：一次事件风暴只触发一次重建。
+  void _notifySoon() {
+    if (_notifyTimer != null) return;
+    _notifyTimer = Timer(const Duration(milliseconds: 100), () {
+      _notifyTimer = null;
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+    super.dispose();
+  }
+
   void remove(String id) {
-    if (_items.remove(id) != null) notifyListeners();
+    if (_items.remove(id) != null) {
+      _cancelPendingNotify();
+      notifyListeners();
+    }
   }
 
   /// 切换页面时清空。列表是按页面聚合的，不清会把上一个页面的资源带过来，
@@ -134,13 +159,20 @@ class SnifferService extends ChangeNotifier {
   void clear() {
     if (_items.isEmpty) return;
     _items.clear();
+    _cancelPendingNotify();
     notifyListeners();
   }
 
   void clearAll() {
     _items.clear();
     _headerCache.clear();
+    _cancelPendingNotify();
     notifyListeners();
+  }
+
+  void _cancelPendingNotify() {
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
   }
 
   /// 去掉 fragment；query 保留 —— 很多地址的签名参数在 query 里，去掉就 403 了。

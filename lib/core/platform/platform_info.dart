@@ -45,6 +45,10 @@ class PlatformInfo {
       current == AppPlatform.macos ||
       current == AppPlatform.linux;
 
+  /// Windows 走 WebView2，嗅探必须用 CDP 而不是拦截回调。
+  /// 见 `cdp_sniffer.dart` 顶部注释——那边解释了为什么。
+  static bool get isWindowsDesktop => current == AppPlatform.windows;
+
   static bool get isMobile =>
       current == AppPlatform.android || current == AppPlatform.ohos;
 
