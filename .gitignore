@@ -42,6 +42,10 @@ app.*.map.json
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
+
+# 本地崩溃排查用的临时产物
+/.tmp-run/
+crash_*.dmp
 /android/app/release
 
 # HarmonyOS（flutter create --platforms ohos 后生成）

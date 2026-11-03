@@ -128,3 +128,36 @@ lib/
 - YouTube、B 站这类签名 + MSE 拼流的站点抓不到原始分片
 - `blob:` 资源直接过滤，不显示
 - 鸿蒙适配版 `transparentBackground` 不生效、`onReceivedError` 有空指针问题，代码里已绕开
+
+## Windows 上的那个崩溃（已修复，记录备查）
+
+`flutter_inappwebview_windows` 0.6.0 有个必崩的缺陷：
+`PermissionRequestCallback` 的解码函数漏了 null 检查
+（`webview_channel_delegate.cpp:57`）：
+
+```cpp
+return std::make_shared<PermissionResponse>(std::get<flutter::EncodableMap>(*value));
+```
+
+Dart 侧没提供 `onPermissionRequest` 时插件收到 null，`*value` 就是空指针，
+`variant::index()` 读偏移 0x40 → `0xc0000005`，进程直接闪退。
+
+**任何申请权限的网站都会崩**，`bing.com` 不申请所以看起来正常，`juejin.cn`
+申请传感器权限就必崩。和嗅探通道无关——把 CDP 和错误回调全关掉仍然照崩。
+
+规避方式：Dart 侧接管 `onPermissionRequest`，**永远返回有效的
+`PermissionResponse`**（本项目一律 DENY），见 `webview_host.dart`。
+
+### 原生崩溃怎么排查
+
+Dart 侧的日志和错误捕获看不到原生崩溃。`windows/runner/main.cpp` 里装了
+`SetUnhandledExceptionFilter` + `MiniDumpWriteDump`，崩溃时在 exe 同目录生成
+`crash_<时间戳>.dmp`。
+
+配合构建产物里的 `.pdb` 和 `llvm-symbolizer` 就能还原到源码行：
+
+```bash
+llvm-symbolizer --obj=flutter_inappwebview_windows_plugin.dll 0x18007a88b
+# → std::_Variant_base<...>::index()  variant:763
+```
+

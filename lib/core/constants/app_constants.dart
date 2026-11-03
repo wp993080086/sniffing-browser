@@ -1,3 +1,5 @@
+import 'dart:io';
+
 /// 全局常量。集中放这里，避免散落在各处。
 class AppConstants {
   const AppConstants._();
@@ -5,7 +7,22 @@ class AppConstants {
   static const String appName = 'Sniffing Browser';
 
   /// 首次启动的首页。留空则显示引导页。
-  static const String defaultHomeUrl = 'https://www.bing.com';
+  static const String _fallbackHomeUrl = 'https://www.bing.com';
+
+  /// 首页地址。支持用环境变量覆盖，方便用命令行复现某个页面的问题：
+  ///
+  /// ```bash
+  /// SNIFF_HOME_URL=https://example.com ./sniffing_browser.exe
+  /// ```
+  static String get defaultHomeUrl {
+    try {
+      final String? override = Platform.environment['SNIFF_HOME_URL'];
+      if (override != null && override.isNotEmpty) return override;
+    } catch (_) {
+      // 取不到环境变量就用默认值
+    }
+    return _fallbackHomeUrl;
+  }
 
   /// 同时进行的下载任务数上限。
   static const int maxConcurrentDownloads = 3;

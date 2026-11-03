@@ -121,7 +121,37 @@ Windows 走 `flutter_inappwebview` 的独立实现包 `flutter_inappwebview_wind
 
 **存储最简单**：Windows 无相册概念，图片 / 视频 / 音频统一写入文件系统目录，无需 MediaStore 或 photoAccessHelper，省掉整个导出适配层。
 
-### 2.4 结论
+### 2.4 Windows 插件的崩溃缺陷（实测确认）
+
+`flutter_inappwebview_windows` 0.6.0 的 `PermissionRequestCallback` 解码函数
+（`windows/in_app_webview/webview_channel_delegate.cpp:57`）**缺少 null 检查**：
+
+```cpp
+// 缺陷写法
+decodeResult = [](const flutter::EncodableValue* value) {
+  return std::make_shared<PermissionResponse>(std::get<flutter::EncodableMap>(*value));
+};
+
+// 同一文件里相邻的 ShouldInterceptRequestCallback 就是对的
+return value == nullptr || value->IsNull() ? ... : ...;
+```
+
+Dart 侧不提供 `onPermissionRequest` 时，插件收到的是 null，`*value` 就是空指针，
+`std::variant::index()` 读偏移 0x40 触发访问违规（`0xc0000005`），**整个进程闪退**。
+
+**影响面**：任何申请权限的网站都会触发。实测 `bing.com` 不申请所以正常，
+`juejin.cn` 申请 `OTHER_SENSORS` 必然崩溃。这个 bug 与嗅探通道无关——把 CDP 和
+错误回调全关掉仍然照崩，只有定位到权限回调才解释得通。
+
+**规避方式**（已在 `webview_host.dart` 实现）：Dart 侧接管 `onPermissionRequest`，
+**永远返回一个有效的 `PermissionResponse`**，不要返回 null，本项目一律 `DENY`。
+
+**定位方法**：Dart 侧日志和错误捕获看不到原生崩溃。为此在
+`windows/runner/main.cpp` 装了 `SetUnhandledExceptionFilter` + `MiniDumpWriteDump`，
+崩溃时在 exe 同目录生成 `crash_<时间戳>.dmp`，再用 `llvm-symbolizer` 结合构建出来的
+`.pdb` 符号化，就能拿到精确到源码行的调用栈。这套机制保留在生产构建里。
+
+### 2.5 结论
 
 一套 Dart 代码可同时产出 APK 与 HAP，**WebView 层不需要双写原生代码**。工作量集中在 Dart 下载引擎，两端天然共享。
 
