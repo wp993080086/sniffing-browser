@@ -90,6 +90,22 @@ class MediaClassifier {
     }
 
     final String ext = extensionOf(url);
+
+    // `m4s` 是 B 站这类站点给 DASH 分片起的扩展名，音轨和视频轨都用它
+    // （内容其实是标准 fMP4，ftyp 里能看到 `dash` brand）。
+    // 只看扩展名分不出是哪条轨，只能靠 MIME：audio/mp4 → 音频轨，
+    // video/mp4 → 视频轨。拿不到 MIME（移动端 onLoadResource 就没有）时
+    // 按视频轨处理 —— 至少不会漏抓。
+    if (ext == 'm4s') {
+      if (mimeType != null && mimeType.isNotEmpty) {
+        final MediaType byMime = classifyMime(mimeType);
+        if (byMime == MediaType.audio || byMime == MediaType.video) {
+          return byMime;
+        }
+      }
+      return MediaType.video;
+    }
+
     if (ext.isNotEmpty) {
       if (_hlsExtensions.contains(ext)) return MediaType.hls;
       if (_dashExtensions.contains(ext)) return MediaType.dash;
@@ -203,6 +219,14 @@ class MediaClassifier {
     }
 
     String ext = p.extension(name);
+
+    // `xxx.m4s` 本身就是 fMP4，改成真实容器扩展名 —— 否则双击、相册、
+    // 系统播放器都不认这个后缀。
+    if (ext.toLowerCase() == '.m4s') {
+      final String real = type == MediaType.audio ? 'm4a' : 'mp4';
+      return '${p.basenameWithoutExtension(name)}.$real';
+    }
+
     if (ext.isEmpty || ext.length < 2) {
       final String fallback = type.defaultExtension;
       name = '$name.$fallback';

@@ -37,7 +37,11 @@ enum TranscodeKind {
     final String ext = filePath.toLowerCase();
     switch (this) {
       case TranscodeKind.tsToMp4:
-        return ext.endsWith('.ts') || ext.endsWith('.m2ts');
+        return ext.endsWith('.ts') ||
+            ext.endsWith('.m2ts') ||
+            // B 站的 `.m4s` 就是 fMP4 分片，流拷贝一下就变成能播的 mp4
+            // （几百 MB 的视频也是秒级完成，不重编码）
+            ext.endsWith('.m4s');
       case TranscodeKind.audioToMp3:
         if (ext.endsWith('.mp3')) return false; // 已经是目标格式
         return type == MediaType.audio ||

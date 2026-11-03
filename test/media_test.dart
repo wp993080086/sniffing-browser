@@ -4,6 +4,7 @@ import 'package:sniffing_browser/features/downloader/data/hls/m3u8_parser.dart';
 import 'package:sniffing_browser/features/sniffer/data/sniffer_service.dart';
 import 'package:sniffing_browser/features/sniffer/domain/media_classifier.dart';
 import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
+import 'package:sniffing_browser/features/transcoder/domain/transcode_job.dart';
 
 void main() {
   group('MediaClassifier', () {
@@ -74,6 +75,65 @@ void main() {
       expect(sniffer.count, 0);
 
       sniffer.dispose();
+    });
+  });
+
+  group('DASH 的 .m4s（B 站分片）', () {
+    test('靠 MIME 区分音轨和视频轨', () {
+      expect(
+        MediaClassifier.classifyUrl(
+          'https://xy1x2x3x4x5.mcdn.bilivideo.cn/42977332133-1-30016.m4s',
+          mimeType: 'video/mp4',
+        ),
+        MediaType.video,
+      );
+      expect(
+        MediaClassifier.classifyUrl(
+          'https://xy1x2x3x4x5.mcdn.bilivideo.cn/42977332133-1-30280.m4s',
+          mimeType: 'audio/mp4',
+        ),
+        MediaType.audio,
+      );
+    });
+
+    test('拿不到 MIME 时按视频轨处理，不漏抓', () {
+      expect(
+        MediaClassifier.classifyUrl('https://cdn.a.com/xxx-1-30016.m4s'),
+        MediaType.video,
+      );
+    });
+
+    test('文件名换成真实容器扩展名', () {
+      expect(
+        MediaClassifier.guessFileName(
+          'https://cdn.a.com/42977332133-1-30016.m4s',
+          MediaType.video,
+        ),
+        '42977332133-1-30016.mp4',
+      );
+      expect(
+        MediaClassifier.guessFileName(
+          'https://cdn.a.com/42977332133-1-30280.m4s',
+          MediaType.audio,
+        ),
+        '42977332133-1-30280.m4a',
+      );
+    });
+
+    test('视频轨可流拷贝成 MP4，音轨可转 MP3', () {
+      expect(
+        TranscodeKind.tsToMp4.appliesTo(MediaType.video, '/x/a.m4s'),
+        isTrue,
+      );
+      expect(
+        TranscodeKind.audioToMp3.appliesTo(MediaType.audio, '/x/a.m4s'),
+        isTrue,
+      );
+      // 纯视频轨不该出现「转 MP3」入口（里面根本没有音轨）
+      expect(
+        TranscodeKind.audioToMp3.appliesTo(MediaType.video, '/x/a.m4s'),
+        isFalse,
+      );
     });
   });
 
