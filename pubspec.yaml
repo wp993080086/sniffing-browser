@@ -1,0 +1,62 @@
+name: sniffing_browser
+description: "跨端媒体嗅探下载器：内置浏览器嗅探图片/音频/视频/HLS，支持下载、转码与导出。"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  # 3.35 线（Dart 3.9）与 3.44 线（Dart 3.12）都能满足
+  sdk: '>=3.9.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 状态管理：异步任务多，用 AsyncValue 省样板代码
+  flutter_riverpod: ^2.6.1
+
+  # WebView —— 三端共用
+  # 注意：跑鸿蒙时必须换成 CPF-Flutter 的 ohos 分支，见文末注释
+  flutter_inappwebview: ^6.1.5
+
+  # 桌面端实现。6.1.x 主包只带 android/ios/macos，Windows 必须单独引入，
+  # 否则 InAppWebView 在 Windows 上会抛 UnimplementedError。
+  flutter_inappwebview_windows: ^0.6.0
+
+  # 网络
+  dio: ^5.7.0
+
+  # 路径与文件
+  path_provider: ^2.1.5
+  path: ^1.9.0
+
+  # 摘要（缓存 key、文件名去重）
+  crypto: ^3.0.6
+
+  # AES-128-CBC 解密 HLS 分片
+  pointycastle: ^3.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+# ---------------------------------------------------------------------------
+# 鸿蒙构建时，把上面的 flutter_inappwebview 替换为下面这段：
+#
+#   flutter_inappwebview:
+#     git:
+#       url: https://gitcode.com/CPF-Flutter/flutter_inappwebview.git
+#       path: flutter_inappwebview
+#       ref: br_v6.1.5_ohos
+#
+# fork 保留 android/ 与 windows/ 目录，因此同一份依赖可覆盖三端，
+# 不需要按平台切换。改动后执行 flutter clean && flutter pub get。
+#
+# FFmpeg 在阶段 5 才引入，届时按平台二选一：
+#   Android/Windows: ffmpeg_kit_flutter_new  (含 libmp3lame)
+#   HarmonyOS:       @ohos/ffmpeg-kit        (ohpm 依赖，非 pub 依赖)
+# 现在用 TranscodeEngine 抽象占位，不引入几十 MB 的原生包。
+# ---------------------------------------------------------------------------
