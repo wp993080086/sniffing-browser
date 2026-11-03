@@ -121,6 +121,27 @@ class SystemFfmpegEngine extends TranscodeEngine {
     }
   }
 
+  /// 音视频两路时长差太多时记一条警告。
+  ///
+  /// 不阻断合并 —— 差几秒的片子照样能看，用户要的是「有声音」而不是
+  /// 「精确对齐」。但要留痕：合并后出现「结尾有声音没画面」时，
+  /// 日志能直接指向原因，而不用去猜是不是合并本身坏了。
+  Future<void> _warnIfDurationMismatch(String video, String audio) async {
+    final Duration? v = await _probeDuration(video);
+    final Duration? a = await _probeDuration(audio);
+    if (v == null || a == null || v.inMilliseconds == 0) return;
+
+    final int diffMs = (v.inMilliseconds - a.inMilliseconds).abs();
+    final double ratio = diffMs / v.inMilliseconds;
+    if (ratio <= 0.05) return;
+
+    logWarn(
+      'FFmpeg',
+      '音视频时长相差 ${ratio * 100 ~/ 1}%（视频 ${v.inSeconds}s / 音频 ${a.inSeconds}s），'
+      '合并后结尾可能有一段对不齐；音轨很可能是没下完整',
+    );
+  }
+
   @override
   Future<void> run({
     required String inputPath,
@@ -128,19 +149,28 @@ class SystemFfmpegEngine extends TranscodeEngine {
     required TranscodeKind kind,
     required void Function(double progress) onProgress,
     required void Function() isCancelled,
+    String? secondaryInputPath,
   }) async {
     final String? ffmpeg = ffmpegPath ?? await locateFfmpeg();
     if (ffmpeg == null) {
       throw UnsupportedError('没有找到 ffmpeg，请安装或设置 SNIFF_FFMPEG_DIR');
     }
+    if (kind.needsSecondaryInput &&
+        (secondaryInputPath == null || secondaryInputPath.isEmpty)) {
+      throw ArgumentError('${kind.label}需要两路输入，第二路缺失');
+    }
 
     _cancelled = false;
     final Duration? total = await _probeDuration(inputPath);
 
+    if (kind == TranscodeKind.dashMerge && secondaryInputPath != null) {
+      await _warnIfDurationMismatch(inputPath, secondaryInputPath);
+    }
+
     try {
       await _execute(
         ffmpeg: ffmpeg,
-        args: _argsFor(kind, inputPath, outputPath),
+        args: _argsFor(kind, inputPath, outputPath, secondaryInputPath),
         outputPath: outputPath,
         total: total,
         onProgress: onProgress,
@@ -148,6 +178,7 @@ class SystemFfmpegEngine extends TranscodeEngine {
     } on _FfmpegFailure catch (e) {
       // TS 里的某些编码（老式 MPEG-2 音频、AC-3）装不进 MP4，`-c copy` 会失败。
       // 这时只重编音频、视频仍然直接复制，代价很小但能救回大部分片子。
+      // （合并音视频不适用：它的音轨本来就是 AAC，失败是别的原因。）
       if (kind != TranscodeKind.tsToMp4) rethrow;
       logWarn('FFmpeg', '无损转封装失败，尝试只重编音频: ${e.message}');
       await _execute(
@@ -174,7 +205,12 @@ class SystemFfmpegEngine extends TranscodeEngine {
     }
   }
 
-  List<String> _argsFor(TranscodeKind kind, String input, String output) {
+  List<String> _argsFor(
+    TranscodeKind kind,
+    String input,
+    String output, [
+    String? secondary,
+  ]) {
     switch (kind) {
       case TranscodeKind.tsToMp4:
         return <String>[
@@ -191,6 +227,22 @@ class SystemFfmpegEngine extends TranscodeEngine {
           '-vn',
           '-c:a', 'libmp3lame',
           '-b:a', '192k',
+          output,
+        ];
+      case TranscodeKind.dashMerge:
+        return <String>[
+          '-y', '-hide_banner',
+          '-i', input,
+          '-i', secondary ?? '',
+          // 显式取「第一路的视频 + 第二路的音频」。不写 -map 时 ffmpeg 会
+          // 每路各挑一条最优流，若视频轨里混进了空音轨就会选错。
+          '-map', '0:v:0',
+          '-map', '1:a:0',
+          '-c', 'copy',
+          // 刻意不加 -shortest：它按「最短的一路」截断，音轨下载不完整
+          // （CDN 提前断开、文件非空但短）时会把视频砍掉一大截，
+          // 比结尾多几秒声音严重得多。实测 4s 视频 + 2s 音频会被砍成 2s。
+          '-movflags', '+faststart',
           output,
         ];
     }

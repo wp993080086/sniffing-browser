@@ -12,7 +12,8 @@ class DownloadPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final DownloadQueue queue = ref.watch(downloadQueueProvider);
-    final List<DownloadTask> tasks = queue.tasks;
+    // 伴随任务（DASH 自动补的音频轨）不单独展示，它只是合并的中间产物。
+    final List<DownloadTask> tasks = queue.visibleTasks;
 
     return Scaffold(
       appBar: AppBar(

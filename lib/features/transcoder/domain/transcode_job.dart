@@ -2,13 +2,19 @@ import 'package:flutter/foundation.dart';
 
 import '../../sniffer/domain/media_type.dart';
 
-/// 转换类型。目前只有两种需求，不做过早抽象。
+/// 转换类型。目前只有三种需求，不做过早抽象。
 enum TranscodeKind {
   /// TS -> MP4，无损转封装。视频站点绝大多数是这条路。
   tsToMp4,
 
   /// 任意音频 -> MP3，有损重编码。
-  audioToMp3;
+  audioToMp3,
+
+  /// 视频轨 + 音频轨 -> 带声音的 MP4。DASH 站点（B 站等）专用。
+  ///
+  /// 和 [tsToMp4] 一样是纯流拷贝，几百 MB 也是秒级完成。
+  /// 区别是它需要**两路输入**，所以不会出现在普通转码菜单里。
+  dashMerge;
 
   String get label {
     switch (this) {
@@ -16,6 +22,8 @@ enum TranscodeKind {
         return '转为 MP4';
       case TranscodeKind.audioToMp3:
         return '转为 MP3';
+      case TranscodeKind.dashMerge:
+        return '合并音视频';
     }
   }
 
@@ -26,13 +34,21 @@ enum TranscodeKind {
         return 'mp4';
       case TranscodeKind.audioToMp3:
         return 'mp3';
+      case TranscodeKind.dashMerge:
+        return 'mp4';
     }
   }
 
   /// 是否无损。无损转封装秒级完成，有损重编码要跑满 CPU。
-  bool get isLossless => this == TranscodeKind.tsToMp4;
+  bool get isLossless => this != TranscodeKind.audioToMp3;
 
-  /// 该媒体类型是否适用。
+  /// 是否需要第二路输入。
+  ///
+  /// 需要第二路输入的任务由下载队列自动排期，不给用户手动入口
+  /// —— 单独点一条音轨去「合并」必然因为缺另一路而失败。
+  bool get needsSecondaryInput => this == TranscodeKind.dashMerge;
+
+  /// 该媒体类型是否适用（手动转码入口用）。
   bool appliesTo(MediaType type, String filePath) {
     final String ext = filePath.toLowerCase();
     switch (this) {
@@ -51,6 +67,8 @@ enum TranscodeKind {
             ext.endsWith('.wav') ||
             ext.endsWith('.ogg') ||
             ext.endsWith('.opus');
+      case TranscodeKind.dashMerge:
+        return false;
     }
   }
 }
@@ -93,8 +111,11 @@ class TranscodeJob {
     required this.outputPath,
     required this.kind,
     required this.createdAt,
+    this.secondarySourcePath,
     this.sourceTaskId,
     this.displayName,
+    this.replaceSource = false,
+    this.onFinished,
   });
 
   final String id;
@@ -102,6 +123,20 @@ class TranscodeJob {
   final String outputPath;
   final TranscodeKind kind;
   final DateTime createdAt;
+
+  /// 第二路输入，只有 [TranscodeKind.dashMerge] 用。
+  final String? secondarySourcePath;
+
+  /// 完成后用输出覆盖 [sourcePath] 并删掉中间文件。
+  ///
+  /// DASH 合并产出的 mp4 和源视频轨是「同一个作品的两个版本」，
+  /// 留着两份会让用户看到两个同名文件，分不清哪个有声音。
+  /// 覆盖比另存安全：下载任务持有的路径不变，导出、重试都不用改。
+  final bool replaceSource;
+
+  /// 结束（成功 / 失败 / 取消）时回调。队列在内部状态落定后调用，
+  /// 让上层（下载队列）能跟着收尾，而不必去监听整个队列。
+  final void Function(TranscodeStatus status)? onFinished;
 
   /// 关联的下载任务，用于在下载列表里回显“已转换”。
   final String? sourceTaskId;

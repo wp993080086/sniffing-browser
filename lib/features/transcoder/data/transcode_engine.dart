@@ -13,12 +13,16 @@ abstract class TranscodeEngine {
   Future<bool> isAvailable();
 
   /// 执行转换。进度 0~1。
+  ///
+  /// [secondaryInputPath] 只有 [TranscodeKind.dashMerge] 需要（音频轨），
+  /// 其余类型传 null。
   Future<void> run({
     required String inputPath,
     required String outputPath,
     required TranscodeKind kind,
     required void Function(double progress) onProgress,
     required void Function() isCancelled,
+    String? secondaryInputPath,
   });
 
   Future<void> cancel(String jobId);
@@ -28,6 +32,7 @@ abstract class TranscodeEngine {
     required String inputPath,
     required String outputPath,
     required TranscodeKind kind,
+    String? secondaryInputPath,
   }) {
     switch (kind) {
       case TranscodeKind.tsToMp4:
@@ -35,6 +40,13 @@ abstract class TranscodeEngine {
         return '-i "$inputPath" -c copy -movflags +faststart "$outputPath"';
       case TranscodeKind.audioToMp3:
         return '-i "$inputPath" -vn -c:a libmp3lame -b:a 192k "$outputPath"';
+      case TranscodeKind.dashMerge:
+        // `-map` 显式指定「第一路的视频 + 第二路的音频」。
+        // 不写的话 ffmpeg 默认每路各取一条最优流，遇到两路都只有视频（或录制
+        // 出来的分片带空音轨）时会选出重复的流。
+        // 不加 `-shortest`：它按最短的一路截断，音轨残缺时会把视频砍掉。
+        return '-i "$inputPath" -i "${secondaryInputPath ?? ''}" '
+            '-map 0:v:0 -map 1:a:0 -c copy -movflags +faststart "$outputPath"';
     }
   }
 }
@@ -71,18 +83,21 @@ class NativeTranscodeEngine extends TranscodeEngine {
     required TranscodeKind kind,
     required void Function(double progress) onProgress,
     required void Function() isCancelled,
+    String? secondaryInputPath,
   }) async {
     if (!await isAvailable()) {
       throw UnsupportedError('当前平台尚未接入 FFmpeg，转换功能不可用');
     }
     await _channel.invokeMethod<void>('startTranscode', <String, Object?>{
       'input': inputPath,
+      'secondaryInput': secondaryInputPath,
       'output': outputPath,
       'kind': kind.name,
       'command': buildCommand(
         inputPath: inputPath,
         outputPath: outputPath,
         kind: kind,
+        secondaryInputPath: secondaryInputPath,
       ),
     });
   }

@@ -114,8 +114,13 @@ class DownloadTile extends ConsumerWidget {
       case DownloadStatus.paused:
         return '已暂停';
       case DownloadStatus.completed:
-        return '已完成${task.container != null ? ' · ${task.container!.toUpperCase()}' : ''}'
-            '${task.needsRemux ? ' · 可转为 MP4' : ''}';
+        final List<String> parts = <String>['已完成'];
+        if (task.container != null) parts.add(task.container!.toUpperCase());
+        // null 表示没有音轨概念（普通文件），只有确实尝试过配对才给结论。
+        if (task.mergedAudio == true) parts.add('含音轨');
+        if (task.mergedAudio == false) parts.add('无音轨');
+        if (task.needsRemux) parts.add('可转为 MP4');
+        return parts.join(' · ');
       case DownloadStatus.failed:
         return task.error ?? '下载失败';
       case DownloadStatus.canceled:
@@ -136,9 +141,11 @@ class _Menu extends ConsumerWidget {
       return const <TranscodeKind>[];
     }
 
-    // 已经有转换任务（含未完成）就不再提供，避免重复入队
+    // 已经有转换任务（含未完成）就不再提供，避免重复入队。
+    // 合并音视频不算 —— 它是队列自动排的收尾动作，不该挡住用户手动转码。
     final TranscodeQueue queue = ref.read(transcodeQueueProvider);
-    final bool hasJob = queue.jobs.any((TranscodeJob j) => j.sourceTaskId == task.id);
+    final bool hasJob = queue.jobs.any((TranscodeJob j) =>
+        j.sourceTaskId == task.id && !j.kind.needsSecondaryInput);
 
     if (hasJob) return const <TranscodeKind>[];
     return <TranscodeKind>[
@@ -266,7 +273,9 @@ class _TranscodeStatus extends ConsumerWidget {
             text = '${current.kind.label}：$percent%';
             color = scheme.primary;
           case TranscodeStatus.completed:
-            text = '已转换为 ${current.kind.extension.toUpperCase()}';
+            text = current.kind.needsSecondaryInput
+                ? '已合并音轨'
+                : '已转换为 ${current.kind.extension.toUpperCase()}';
             color = scheme.primary;
           case TranscodeStatus.failed:
             text = '转换失败：${current.error ?? "未知原因"}';

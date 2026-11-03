@@ -39,6 +39,22 @@ class DownloadTask {
   DownloadStatus _status;
   DownloadStatus get status => _status;
 
+  /// 配对的另一条任务（DASH：视频轨 <-> 音频轨）。
+  ///
+  /// 只在入队时设置一次。两条都下载完成后由队列触发无损合并，
+  /// 合并成功就把这一对收敛成一个带声音的 mp4。
+  String? pairedTaskId;
+
+  /// 是否是「自动补上的伴随任务」。
+  ///
+  /// 用户点视频轨时，队列会顺手把配对的音频轨也排进来。这条任务是实现细节，
+  /// 下载列表里不单独展示 —— 否则用户会看到两个莫名其妙的分片文件。
+  /// 用户自己点音频轨下载的那些不走这条路，正常显示（他要的是 MP3）。
+  bool isCompanion = false;
+
+  /// 音轨是否已合并进文件。null 表示没有音轨可合（或还没到那一步）。
+  bool? mergedAudio;
+
   int receivedBytes = 0;
   int? totalBytes;
   int segmentDone = 0;

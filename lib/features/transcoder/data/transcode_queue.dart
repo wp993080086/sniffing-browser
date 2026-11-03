@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
+import '../../../core/logging/app_log.dart';
 import '../../../core/platform/platform_info.dart';
 import '../../../core/platform/storage_paths.dart';
 import '../../../core/utils/hash_util.dart';
@@ -45,11 +46,18 @@ class TranscodeQueue extends ChangeNotifier {
   }
 
   /// 入队。同一个源文件 + 同一种转换不重复添加。
+  ///
+  /// 常规手动转换只用 [sourcePath] / [kind]；DASH 合并额外给
+  /// [secondarySourcePath]（音频轨），并用 [replaceSource] 把成品覆盖回源路径。
   TranscodeJob enqueue({
     required String sourcePath,
     required TranscodeKind kind,
+    String? secondarySourcePath,
     String? sourceTaskId,
     String? displayName,
+    String? outputPath,
+    bool replaceSource = false,
+    void Function(TranscodeStatus status)? onFinished,
   }) {
     for (final TranscodeJob job in _jobs) {
       if (job.sourcePath == sourcePath &&
@@ -60,16 +68,23 @@ class TranscodeQueue extends ChangeNotifier {
     }
 
     final String baseName = p.basenameWithoutExtension(sourcePath);
-    final File target = StoragePaths.uniqueFile('$baseName.${kind.extension}');
+    // 合并任务的输出由下载队列指定（临时目录），其余按源文件名落到下载目录。
+    final File target = outputPath != null
+        ? File(outputPath)
+        : StoragePaths.uniqueFile('$baseName.${kind.extension}');
 
     final TranscodeJob job = TranscodeJob(
-      id: HashUtil.md5Short('$sourcePath#${kind.name}#${DateTime.now().microsecondsSinceEpoch}'),
+      id: HashUtil.md5Short(
+          '$sourcePath#${kind.name}#${DateTime.now().microsecondsSinceEpoch}'),
       sourcePath: sourcePath,
       outputPath: target.path,
       kind: kind,
       createdAt: DateTime.now(),
+      secondarySourcePath: secondarySourcePath,
       sourceTaskId: sourceTaskId,
       displayName: displayName ?? p.basename(sourcePath),
+      replaceSource: replaceSource,
+      onFinished: onFinished,
     );
 
     _jobs.insert(0, job);
@@ -141,10 +156,16 @@ class TranscodeQueue extends ChangeNotifier {
               : '当前平台尚未接入 FFmpeg',
         );
       }
+      final Directory outDir = Directory(p.dirname(job.outputPath));
+      if (!await outDir.exists()) {
+        await outDir.create(recursive: true);
+      }
+
       await _engine.run(
         inputPath: job.sourcePath,
         outputPath: job.outputPath,
         kind: job.kind,
+        secondaryInputPath: job.secondarySourcePath,
         onProgress: (double value) {
           job.setProgress(value);
         },
@@ -153,6 +174,9 @@ class TranscodeQueue extends ChangeNotifier {
       job.setProgress(1);
       // 取消和完成可能同时发生（kill 送达前进程已退出），以用户意图为准。
       if (job.status != TranscodeStatus.canceled) {
+        if (job.replaceSource) {
+          await _replaceSource(job);
+        }
         job.setStatus(TranscodeStatus.completed);
       }
     } on TranscodeCancelled {
@@ -169,8 +193,64 @@ class TranscodeQueue extends ChangeNotifier {
       }
     } finally {
       _isRunning = false;
+      // 先把终态抛给上层（下载队列要靠它决定是否删掉伴随任务），
+      // 再通知 UI、再排下一个。
+      final void Function(TranscodeStatus)? callback = job.onFinished;
+      if (callback != null) {
+        try {
+          callback(job.status);
+        } catch (e) {
+          logWarn('Transcode', '完成回调异常: $e');
+        }
+      }
       _safeNotify();
       _pump();
+    }
+  }
+
+  /// 合并成功后把成品挪回源路径，并删掉中间的音频轨。
+  ///
+  /// 顺序必须是「先落地成品，再删中间文件」：反过来的话，一旦 mv 失败
+  /// 用户就既没有带声音的 mp4，也没了原始分片。
+  Future<void> _replaceSource(TranscodeJob job) async {
+    final File produced = File(job.outputPath);
+    if (!await produced.exists()) {
+      throw StateError('合并完成但没有产出文件');
+    }
+
+    final File target = File(job.sourcePath);
+    await _moveFile(produced, target);
+
+    final String? secondary = job.secondarySourcePath;
+    if (secondary != null) {
+      await _deleteQuietly(secondary);
+    }
+    // 临时目录里的成品已经挪走；如果 _moveFile 走了复制分支，这里清掉原件。
+    await _deleteQuietly(job.outputPath);
+
+    logInfo('Transcode', '音视频已合并: ${p.basename(job.sourcePath)}');
+  }
+
+  /// 同盘 rename 是瞬时的；跨盘（临时目录和下载目录可能不在一个卷）
+  /// 会抛 FileSystemException，退回复制。
+  static Future<void> _moveFile(File from, File to) async {
+    final File target = File(to.path);
+    if (await target.exists()) {
+      await target.delete();
+    }
+    try {
+      await from.rename(to.path);
+    } on FileSystemException {
+      await from.copy(to.path);
+    }
+  }
+
+  static Future<void> _deleteQuietly(String path) async {
+    try {
+      final File file = File(path);
+      if (await file.exists()) await file.delete();
+    } catch (e) {
+      logWarn('Transcode', '清理中间文件失败: $path ($e)');
     }
   }
 
