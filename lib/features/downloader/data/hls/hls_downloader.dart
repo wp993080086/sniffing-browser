@@ -187,6 +187,16 @@ class HlsDownloader {
       headers: headers,
       cancelToken: cancelToken,
     );
+    // 有的站点会把不存在的 m3u8 兜底成首页 HTML。直接交给 parser 也行，
+    // 但报出来只会是"没有分片"，定位不到真正原因。
+    if (!text.trimLeft().startsWith('#EXTM3U')) {
+      final String preview = text.trimLeft().replaceAll(RegExp(r'\s+'), ' ');
+      throw DownloadException(
+        '该地址返回的不是 m3u8（开头是“${_clip(preview)}”），'
+        '站点可能返回了错误页或要求登录',
+        url: url,
+      );
+    }
     M3u8Playlist playlist = parser.parse(text, Uri.parse(url));
     String? variantLabel;
 
@@ -280,3 +290,7 @@ class HlsDownloader {
     return result;
   }
 }
+
+/// 把响应内容截成一小段，塞进错误信息里给用户看开头是什么。
+String _clip(String text, [int max = 60]) =>
+    text.length <= max ? text : '${text.substring(0, max)}…';

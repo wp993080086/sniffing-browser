@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../sniffer/domain/media_type.dart';
+import 'media_validator.dart';
 
 /// 普通单文件下载（图片 / mp3 / mp4 / 分片）。
 ///
@@ -41,6 +43,7 @@ class FileDownloader {
     CancelToken? cancelToken,
     void Function(int received, int total)? onProgress,
     int retries = 2,
+    MediaType? expectType,
   }) async {
     await target.parent.create(recursive: true);
     final File part = File('${target.path}.part');
@@ -51,7 +54,7 @@ class FileDownloader {
     Object? lastError;
     for (int attempt = 0; attempt <= retries; attempt++) {
       try {
-        await _dio.download(
+        final Response<dynamic> response = await _dio.download(
           url,
           part.path,
           options: Options(
@@ -66,6 +69,21 @@ class FileDownloader {
         if (!await part.exists()) {
           throw const FileSystemException('下载完成但文件不存在');
         }
+
+        // 内容校验：站点把 404 兜底成首页时，`.mp4` 里装的是整页 HTML。
+        // 这种文件存下来只会得到"此文件无法播放"，必须在落盘前拦掉。
+        if (expectType != null) {
+          final String? problem = await MediaValidator.validate(
+            part,
+            type: expectType,
+            contentType: response.headers.value(Headers.contentTypeHeader),
+          );
+          if (problem != null) {
+            await part.delete();
+            throw DownloadException(problem, url: url);
+          }
+        }
+
         if (await target.exists()) {
           await target.delete();
         }

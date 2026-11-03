@@ -56,6 +56,19 @@ class MediaClassifier {
     'fbcdn.net/tr',
   ];
 
+  /// MIME 已经明确是「网页 / 接口报文」时，扩展名说了不算。
+  ///
+  /// 典型场景：SPA 站点把不存在的 `/_nuxt/videos/banner.xxx.mp4`
+  /// 兜底成首页（200 + text/html）。扩展名伪装得完美，内容却是一整页 HTML，
+  /// 下了也放不出来 —— 这种条目根本不该出现在资源列表里。
+  static const List<String> _textualMimes = <String>[
+    'text/html',
+    'application/xhtml',
+    'application/json',
+    'text/xml',
+    'application/xml',
+  ];
+
   /// 主判定入口。
   ///
   /// [mimeType] 通常拿不到（ArkWeb / WebView 都只给 URL 和请求头），
@@ -68,6 +81,13 @@ class MediaClassifier {
 
     final String scheme = uri.scheme.toLowerCase();
     if (scheme != 'http' && scheme != 'https') return MediaType.other;
+
+    if (mimeType != null && mimeType.isNotEmpty) {
+      final String mime = mimeType.toLowerCase();
+      for (final String textual in _textualMimes) {
+        if (mime.contains(textual)) return MediaType.other;
+      }
+    }
 
     final String ext = extensionOf(url);
     if (ext.isNotEmpty) {
@@ -111,6 +131,26 @@ class MediaClassifier {
     if (mime.contains('mpegurl')) return MediaType.hls;
     if (mime.contains('dash+xml')) return MediaType.dash;
     return MediaType.other;
+  }
+
+  /// 扩展名本身指向媒体（用来给「被 MIME 否决」的条目写诊断日志）。
+  static bool hasMediaExtension(String url) {
+    final String ext = extensionOf(url);
+    if (ext.isEmpty) return false;
+    return _imageExtensions.contains(ext) ||
+        _audioExtensions.contains(ext) ||
+        _videoExtensions.contains(ext) ||
+        _hlsExtensions.contains(ext) ||
+        _dashExtensions.contains(ext);
+  }
+
+  /// MIME 是否属于「网页 / 接口报文」。这类响应即使扩展名像媒体也不是媒体。
+  static bool isTextualMime(String mimeType) {
+    final String mime = mimeType.toLowerCase();
+    for (final String textual in _textualMimes) {
+      if (mime.contains(textual)) return true;
+    }
+    return false;
   }
 
   /// 取 URL path 的扩展名，小写，不含点。

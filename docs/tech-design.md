@@ -1235,6 +1235,8 @@ sniffing-browser/
 | Windows 嗅探通道退化 | 可能不支持 `onLoadResource`，只能走 `shouldInterceptRequest` 单通道 | 实测确认；必要时降低回调频率，仅对媒体后缀做处理 |
 | Windows ARM64 | `ffmpeg_kit_flutter_new` 仅提供 x86_64 产物 | 不考虑 ARM 设备；如需支持需自行交叉编译 FFmpeg |
 | 鸿蒙导出授权窗口 | SaveButton 授权仅 10 秒 / 1 分钟，超时 `createAsset` 失效 | 先下载完成再导出，禁止在授权后才开始网络请求 |
+| 站点把 404 兜底成首页 | 请求不存在的 `.mp4` 会拿到 `200 + text/html` 的整页 HTML，扩展名不变、大小几十 KB，存下来就是“文件已损坏”。实测 `sagigames.cn` 的 `/_nuxt/videos/banner.bf78c42.mp4` 与首页 HTML 字节完全相同 | 三道防线：嗅探层按 MIME 否决（`text/html` 一律不算媒体）、下载层按内容校验（HTML/JSON/纯文本载荷拒收）、HLS 层校验 `#EXTM3U` 头。见 `media_validator.dart` |
+| 自动播放被拦 | Chromium 策略要求带声音的媒体必须由用户手势触发；内嵌 WebView 无手势上下文，同一页面在系统浏览器能播、在应用里不动 | 页面加载完成后注入兜底脚本：对 `video[autoplay]` 补 `muted` 再 `play()`，只作用于带 autoplay 的元素 |
 
 **合规说明**：本工具仅供下载用户有权访问的内容，使用者需自行确保不侵犯版权及违反站点服务条款。
 

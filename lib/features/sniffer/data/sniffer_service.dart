@@ -86,7 +86,22 @@ class SnifferService extends ChangeNotifier {
     if (MediaClassifier.isIgnorable(url)) return null;
 
     final MediaType type = MediaClassifier.classifyUrl(url, mimeType: mimeType);
-    if (type == MediaType.other) return null;
+    if (type == MediaType.other) {
+      // 扩展名像媒体、服务器却回了网页 —— 多半是站点把 404 兜底成首页。
+      // 这种地址下了也放不出来，所以不入列表，但留一条日志便于排查
+      // （否则用户会问"页面上的视频怎么没抓到"）。
+      if (mimeType != null &&
+          mimeType.isNotEmpty &&
+          MediaClassifier.hasMediaExtension(url) &&
+          MediaClassifier.isTextualMime(mimeType)) {
+        logWarn(
+          'Sniffer',
+          '跳过非媒体响应: $url —— 扩展名像媒体，但服务器返回 $mimeType'
+          '（通常是 404 回退到首页）',
+        );
+      }
+      return null;
+    }
 
     final String key = _normalize(url);
     final String id = HashUtil.md5Short(key);

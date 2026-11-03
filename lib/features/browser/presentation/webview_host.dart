@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -105,6 +106,46 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
     ref.read(snifferProvider).capture(url: url);
   }
 
+  /// 自动播放兜底脚本。
+  ///
+  /// Chromium 的自动播放策略规定：**带声音**的音视频必须由用户手势触发。
+  /// 内嵌 WebView 里没有这个手势上下文，站点写了 `autoplay` 也可能只是停住，
+  /// 而同一个页面在系统浏览器里能播（顶层页面有用户激活 / 媒体参与度打分）。
+  ///
+  /// 这里只处理 `video[autoplay]`：补上静音再 `play()`。
+  /// 不碰用户主动点播放的视频，也不会把它们消音。
+  static const String _autoplayNudge = r'''
+(function () {
+  try {
+    var videos = document.querySelectorAll('video[autoplay]');
+    var kicked = 0;
+    for (var i = 0; i < videos.length; i++) {
+      var v = videos[i];
+      if (!v.paused) continue;
+      if (!v.muted) v.muted = true;
+      var p = v.play();
+      if (p && p.catch) p.catch(function () {});
+      kicked++;
+    }
+    return kicked;
+  } catch (e) { return -1; }
+})();
+''';
+
+  /// 触发一次自动播放兜底。失败只记日志，不影响页面。
+  Future<void> _nudgeAutoplay(InAppWebViewController controller) async {
+    try {
+      final Object? result =
+          await controller.evaluateJavascript(source: _autoplayNudge);
+      final int kicked = result is int ? result : int.tryParse('$result') ?? 0;
+      if (kicked > 0) {
+        logInfo('WebView', '自动播放兜底：已启动 $kicked 个 video[autoplay]');
+      }
+    } catch (e) {
+      logWarn('WebView', '自动播放兜底脚本执行失败: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final SnifferService sniffer = ref.read(snifferProvider);
@@ -156,6 +197,12 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
           );
         }
         await browser.handleLoadStop(url);
+        // 首屏视频的 src 常常是 hydration 之后才挂上去的，等一会儿再兜一次。
+        unawaited(_nudgeAutoplay(controller));
+        Timer(const Duration(milliseconds: 1500), () {
+          if (!mounted) return;
+          unawaited(_nudgeAutoplay(controller));
+        });
       },
       onProgressChanged: (InAppWebViewController controller, int progress) {
         browser.handleProgress(progress);

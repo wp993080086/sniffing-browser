@@ -221,6 +221,8 @@ class DownloadQueue extends ChangeNotifier {
       target: target,
       headers: task.headers,
       cancelToken: token,
+      // 落盘前做内容校验：URL 说 .mp4 不代表内容真是 mp4
+      expectType: task.type,
       onProgress: (int received, int total) {
         task.updateBytes(received, total > 0 ? total : null);
 
