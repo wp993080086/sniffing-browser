@@ -135,6 +135,39 @@ void main() {
         isFalse,
       );
     });
+
+    test('合并后的 mp4 可以抽 MP3，纯视频轨的 mp4 不行', () {
+      // 合并产物：mergedAudio == true，是唯一确定带音轨的来源
+      expect(
+        TranscodeKind.audioToMp3
+            .appliesTo(MediaType.video, '/x/a.mp4', hasAudio: true),
+        isTrue,
+      );
+      // 配对失败 / 单轨下载：mergedAudio == false，点了必然报「没有音轨」
+      expect(
+        TranscodeKind.audioToMp3
+            .appliesTo(MediaType.video, '/x/a.mp4', hasAudio: false),
+        isFalse,
+      );
+      // 普通下载的 mp4 没探测过（null）：放行，绝大多数自带音轨
+      expect(
+        TranscodeKind.audioToMp3
+            .appliesTo(MediaType.video, '/x/a.mp4', hasAudio: null),
+        isTrue,
+      );
+      // 原始 .m4s 分片后缀分不出音视频轨，只有确认带音轨才给入口
+      expect(
+        TranscodeKind.audioToMp3
+            .appliesTo(MediaType.video, '/x/a.m4s', hasAudio: null),
+        isFalse,
+      );
+      // mp3 本身不该再出现「转为 MP3」
+      expect(
+        TranscodeKind.audioToMp3
+            .appliesTo(MediaType.audio, '/x/a.mp3', hasAudio: true),
+        isFalse,
+      );
+    });
   });
 
   group('M3u8Parser', () {

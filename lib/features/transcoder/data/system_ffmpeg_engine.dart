@@ -176,6 +176,16 @@ class SystemFfmpegEngine extends TranscodeEngine {
         onProgress: onProgress,
       );
     } on _FfmpegFailure catch (e) {
+      // 「要抽音轨但源里没有音轨」是最常见的一种失败，几乎都是纯视频轨
+      // （B 站那种只有画面的 m4s）。ffmpeg 的原文是
+      // `Stream map '0:a:0' matches no streams.`，对用户毫无意义，这里拦住。
+      if (kind == TranscodeKind.audioToMp3 &&
+          _looksLikeNoAudioStream('${e.message}\n${e.raw}')) {
+        throw const TranscodeUnsupportedSource(
+          '这个文件里没有音轨，无法提取 MP3（多半是纯视频轨或无声视频）',
+        );
+      }
+
       // TS 里的某些编码（老式 MPEG-2 音频、AC-3）装不进 MP4，`-c copy` 会失败。
       // 这时只重编音频、视频仍然直接复制，代价很小但能救回大部分片子。
       // （合并音视频不适用：它的音轨本来就是 AAC，失败是别的原因。）
@@ -225,6 +235,11 @@ class SystemFfmpegEngine extends TranscodeEngine {
           '-y', '-hide_banner',
           '-i', input,
           '-vn',
+          // 显式取第一条音轨。源可能是视频容器（合并后的 mp4），多音轨时
+          // 不指定会按 default 标记挑，结果不可预期。
+          '-map', '0:a:0',
+          // 不加 `-ac 2`：实测 5.1 源 ffmpeg 会自动降混到立体声，
+          // 强行指定反而把单声道源也变成双声道、文件白白大一倍。
           '-c:a', 'libmp3lame',
           '-b:a', '192k',
           output,
@@ -303,7 +318,7 @@ class SystemFfmpegEngine extends TranscodeEngine {
 
     if (code != 0) {
       final String tail = stderrTail.toString();
-      throw _FfmpegFailure(code, _extractError(tail));
+      throw _FfmpegFailure(code, _extractError(tail), tail);
     }
 
     onProgress(1);
@@ -368,11 +383,28 @@ class SystemFfmpegEngine extends TranscodeEngine {
 }
 
 class _FfmpegFailure implements Exception {
-  _FfmpegFailure(this.exitCode, this.message);
+  _FfmpegFailure(this.exitCode, this.message, [this.raw = '']);
+
   final int exitCode;
+
+  /// 从 stderr 里挑出的一行，用来展示。
   final String message;
+
+  /// 完整 stderr。[message] 只保留一行，判断错误类型时不够用 ——
+  /// 比如「没有音轨」的关键行本身不含 error 字样，会被 [_extractError] 跳过。
+  final String raw;
+
   @override
   String toString() => message;
+}
+
+/// stderr 是否在说「源里没有音频流」。
+bool _looksLikeNoAudioStream(String text) {
+  final String lower = text.toLowerCase();
+  return lower.contains('matches no streams') ||
+      lower.contains('does not contain any stream') ||
+      lower.contains('no audio stream') ||
+      lower.contains('could not find codec parameters for stream 0 (audio');
 }
 
 /// 用户主动取消。和失败区分开，UI 上显示「已取消」而不是「失败」。

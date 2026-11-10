@@ -140,17 +140,29 @@ class _Menu extends ConsumerWidget {
     if (path == null || task.status != DownloadStatus.completed) {
       return const <TranscodeKind>[];
     }
+    if (task.isCompanion) return const <TranscodeKind>[];
+
+    final TranscodeQueue queue = ref.read(transcodeQueueProvider);
+
+    // 合并还没走完时不给任何手动入口：合并成功会覆盖源文件，
+    // 这时候去读那个 mp4 可能拿到只写了一半的内容。
+    final bool merging = queue.jobs.any((TranscodeJob j) =>
+        j.sourceTaskId == task.id &&
+        j.kind.needsSecondaryInput &&
+        !j.status.isFinished);
+    if (merging) return const <TranscodeKind>[];
 
     // 已经有转换任务（含未完成）就不再提供，避免重复入队。
     // 合并音视频不算 —— 它是队列自动排的收尾动作，不该挡住用户手动转码。
-    final TranscodeQueue queue = ref.read(transcodeQueueProvider);
     final bool hasJob = queue.jobs.any((TranscodeJob j) =>
         j.sourceTaskId == task.id && !j.kind.needsSecondaryInput);
-
     if (hasJob) return const <TranscodeKind>[];
+
     return <TranscodeKind>[
       for (final TranscodeKind kind in TranscodeKind.values)
-        if (kind.appliesTo(task.type, path)) kind,
+        // mergedAudio 直接当「这个文件带音轨吗」的答案：
+        // true 是合并产物，false 是纯视频轨，null 是没探测过（普通下载）。
+        if (kind.appliesTo(task.type, path, hasAudio: task.mergedAudio)) kind,
     ];
   }
 

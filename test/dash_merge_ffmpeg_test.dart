@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sniffing_browser/core/platform/storage_paths.dart';
 import 'package:sniffing_browser/features/transcoder/data/system_ffmpeg_engine.dart';
+import 'package:sniffing_browser/features/transcoder/data/transcode_engine.dart';
 import 'package:sniffing_browser/features/transcoder/data/transcode_queue.dart';
 import 'package:sniffing_browser/features/transcoder/domain/transcode_job.dart';
 
@@ -145,8 +146,7 @@ void main() {
         reason: '视频被音频长度带跑了: $vSeconds');
   }, timeout: const Timeout(Duration(minutes: 2)));
 
-  test('走队列时成品覆盖视频轨原路径，中间音频被清掉', () async {
-    if (ffmpeg == null) {
+  test('走队列时成品覆盖视频轨原路径，中间音频被清掉', () async {    if (ffmpeg == null) {
       markTestSkipped('本机没有 ffmpeg');
       return;
     }
@@ -188,6 +188,83 @@ void main() {
 
     queue.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('合并后的 mp4 能抽出 MP3（这个文件确实带音轨）', () async {
+    if (ffmpeg == null) {
+      markTestSkipped('本机没有 ffmpeg');
+      return;
+    }
+
+    final File video = await makeVideoTrack(4);
+    final File audio = await makeAudioTrack(4);
+    final File merged = File('${work.path}/merged.mp4');
+    final SystemFfmpegEngine engine = SystemFfmpegEngine();
+
+    await engine.run(
+      inputPath: video.path,
+      outputPath: merged.path,
+      kind: TranscodeKind.dashMerge,
+      secondaryInputPath: audio.path,
+      onProgress: (double _) {},
+      isCancelled: () => false,
+    );
+
+    final File mp3 = File('${work.path}/merged.mp3');
+    await engine.run(
+      inputPath: merged.path,
+      outputPath: mp3.path,
+      kind: TranscodeKind.audioToMp3,
+      onProgress: (double _) {},
+      isCancelled: () => false,
+    );
+
+    expect(await mp3.exists(), isTrue);
+    expect(await mp3.length(), greaterThan(10 * 1024),
+        reason: '抽出来的 mp3 太小，可能只有容器头');
+
+    final List<int> head = await _readAt(mp3, 0, 3);
+    final bool isMp3 = (head.length >= 3 &&
+            head[0] == 0x49 && head[1] == 0x44 && head[2] == 0x33) ||
+        (head.length >= 2 && head[0] == 0xFF && (head[1] & 0xE0) == 0xE0);
+    expect(isMp3, isTrue, reason: '输出不是 mp3 容器');
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('纯视频 mp4 抽 MP3 会给出中文结论，而不是 ffmpeg 原文', () async {
+    if (ffmpeg == null) {
+      markTestSkipped('本机没有 ffmpeg');
+      return;
+    }
+
+    final File video = await makeVideoTrack(2);
+    final SystemFfmpegEngine engine = SystemFfmpegEngine();
+
+    await expectLater(
+      engine.run(
+        inputPath: video.path,
+        outputPath: '${work.path}/silent.mp3',
+        kind: TranscodeKind.audioToMp3,
+        onProgress: (double _) {},
+        isCancelled: () => false,
+      ),
+      throwsA(
+        isA<TranscodeUnsupportedSource>().having(
+          (TranscodeUnsupportedSource e) => e.toString(),
+          'message',
+          contains('没有音轨'),
+        ),
+      ),
+    );
+  }, timeout: const Timeout(Duration(minutes: 2)));
+}
+
+Future<List<int>> _readAt(File file, int offset, int length) async {
+  final RandomAccessFile raf = await file.open();
+  try {
+    await raf.setPosition(offset);
+    return await raf.read(length);
+  } finally {
+    await raf.close();
+  }
 }
 
 Future<void> _waitDone(TranscodeJob job, Duration limit) async {

@@ -184,6 +184,8 @@ class DownloadQueue extends ChangeNotifier {
     task.segmentDone = 0;
     task.progress.value = 0;
     task.speed.value = 0;
+    // 重来一次可能配到上次还没出现的音频轨，结论要重新得出。
+    task.mergedAudio = null;
     task.setStatus(DownloadStatus.pending);
     _safeNotify();
     _pump();
@@ -329,6 +331,9 @@ class DownloadQueue extends ChangeNotifier {
         'Download',
         'DASH 视频轨没找到配对的音频轨，将按单轨下载（无声）: ${task.fileName}',
       );
+      // 记下「确实没有音轨」，下载列表就不会对这个文件提供「转为 MP3」
+      // —— 那条路径必然因为找不到音频流而失败。
+      task.mergedAudio = false;
       return;
     }
     _attachCompanion(task, audio);

@@ -238,6 +238,35 @@ void main() {
       queue.dispose();
     });
 
+    test('页面上只有视频轨时，标记为无音轨（不该给 MP3 入口）', () async {
+      final String host = 'http://127.0.0.1:${server.port}';
+      final MediaItem v = _item(
+        id: 'solo',
+        url: '$host/42977332133-3-30016.m4s',
+        type: MediaType.video,
+        fileName: '42977332133-3-30016.mp4',
+      );
+      final List<MediaItem> items = <MediaItem>[v];
+
+      final DownloadQueue queue = DownloadQueue(
+        transcoder: transcoder,
+        poolSupplier: () => items,
+      );
+
+      final DownloadTask video = queue.enqueue(v, pool: items);
+      expect(video.pairedTaskId, isNull, reason: '没有音频轨可配');
+
+      await _waitFor(
+          () => video.status.isFinished, const Duration(seconds: 20));
+
+      expect(video.status, DownloadStatus.completed);
+      expect(video.mergedAudio, isFalse,
+          reason: '明确没有音轨，UI 才能把「转为 MP3」挡掉');
+      expect(engine.calls, isEmpty, reason: '没有音频轨时不该触发合并');
+
+      queue.dispose();
+    });
+
     test('音频轨下不下来时，视频照常完成并标记无音轨', () async {
       final String host = 'http://127.0.0.1:${server.port}';
       final MediaItem v = _item(

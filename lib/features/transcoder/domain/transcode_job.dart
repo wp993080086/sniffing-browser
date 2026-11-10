@@ -49,7 +49,13 @@ enum TranscodeKind {
   bool get needsSecondaryInput => this == TranscodeKind.dashMerge;
 
   /// 该媒体类型是否适用（手动转码入口用）。
-  bool appliesTo(MediaType type, String filePath) {
+  ///
+  /// [hasAudio] 表示「这个文件确认带音轨吗」：
+  /// - `true`：已知有（DASH 合并产物），视频容器也放行抽音频
+  /// - `false`：已知没有（纯视频轨 m4s），不放行，免得点了必然失败
+  /// - `null`：不知道，只有普通视频容器放行 —— 那种文件绝大多数自带音轨，
+  ///   真碰上无声的会在转换时给出「文件里没有音轨」的明确结论
+  bool appliesTo(MediaType type, String filePath, {bool? hasAudio}) {
     final String ext = filePath.toLowerCase();
     switch (this) {
       case TranscodeKind.tsToMp4:
@@ -60,17 +66,43 @@ enum TranscodeKind {
             ext.endsWith('.m4s');
       case TranscodeKind.audioToMp3:
         if (ext.endsWith('.mp3')) return false; // 已经是目标格式
-        return type == MediaType.audio ||
-            ext.endsWith('.m4a') ||
-            ext.endsWith('.aac') ||
-            ext.endsWith('.flac') ||
-            ext.endsWith('.wav') ||
-            ext.endsWith('.ogg') ||
-            ext.endsWith('.opus');
+        if (type == MediaType.audio) return true;
+        if (_audioExtensions.any(ext.endsWith)) return true;
+        // `.m4s` 是 DASH 分片，单看后缀分不出音视频轨，只有确认带音轨才放行。
+        if (ext.endsWith('.m4s')) return hasAudio == true;
+        if (_videoContainers.any(ext.endsWith)) return hasAudio != false;
+        return false;
       case TranscodeKind.dashMerge:
         return false;
     }
   }
+
+  /// 纯音频容器。这些文件抽 MP3 是本职，不需要额外判断。
+  static const List<String> _audioExtensions = <String>[
+    '.m4a',
+    '.aac',
+    '.flac',
+    '.wav',
+    '.ogg',
+    '.opus',
+    '.wma',
+    '.amr',
+  ];
+
+  /// 视频容器。可能带音轨也可能不带，得看 [hasAudio]。
+  static const List<String> _videoContainers = <String>[
+    '.mp4',
+    '.m4v',
+    '.mov',
+    '.mkv',
+    '.webm',
+    '.flv',
+    '.avi',
+    '.wmv',
+    '.3gp',
+    '.ts',
+    '.m2ts',
+  ];
 }
 
 enum TranscodeStatus {

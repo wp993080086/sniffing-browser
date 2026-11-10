@@ -899,7 +899,7 @@ pending → running → success
 | 类型 | 触发条件 | 命令 |
 | --- | --- | --- |
 | TS → MP4 | 下载结果为 `.ts` | `-i in.ts -c copy out.mp4` |
-| 音频 → MP3 | 用户手动触发，源非 mp3 | `-i in.m4a -c:a libmp3lame -b:a 192k out.mp3` |
+| 音频 / 带音轨的视频 → MP3 | 用户手动触发，源非 mp3，且确认带音轨 | `-i in.mp4 -vn -map 0:a:0 -c:a libmp3lame -b:a 192k out.mp3` |
 | 音视频合并 | DASH 音视频两条分片都下载完成（自动） | `-i v.m4s -i a.m4s -map 0:v:0 -map 1:a:0 -c copy out.mp4` |
 
 第三条是自动排期的，不给手动入口（缺一路输入必然失败），详见 5.8。
@@ -961,7 +961,8 @@ final _timePattern = RegExp(r'time=(\d+):(\d+):(\d+)\.(\d+)');
 不做独立页面。转换是下载列表项上的操作：
 
 - 下载完成且是 `.ts` → 显示「转为 MP4」
-- 下载完成且音频非 mp3 → 显示「转为 MP3」
+- 下载完成、源的音频非 mp3、且确认带音轨（含合并后的 mp4）→ 显示「转为 MP3」
+- 合并进行中不显示任何转换入口（源文件马上会被覆盖）
 - 支持长按多选 → 批量加入转换队列
 - 转换中显示进度条与取消按钮
 - 转换完成 → 原条目旁出现新条目，或原地更新文件名
@@ -1042,6 +1043,34 @@ ffprobe 只有 1 条 h264 流，抽音轨直接报 `Output file does not contain
 
 覆盖而不是另存，是为了让下载任务持有的路径不变：导出、重试、后续转 MP3
 都不用改代码。用户目录里也只会看到一个「完整」的 mp4，不会出现同名两份。
+
+#### 合并之后：从视频里抽 MP3
+
+合并产出的 mp4 是真的带音轨的，所以「转为 MP3」这个入口必须对它开放，
+否则用户下完 B 站视频想要音频时，只能再回去找那条音频分片。
+
+难点在于**判断一个视频文件到底带不带音轨**。`DownloadTask.mergedAudio`
+是唯一可靠的信号，按三态使用：
+
+| `mergedAudio` | 含义 | 是否给「转为 MP3」 |
+| --- | --- | --- |
+| `true` | 合并成功，确定有 | 给 |
+| `false` | DASH 视频轨没配上音频（纯视频轨） | 不给，点了必然失败 |
+| `null` | 没探测过（普通下载的 mp4） | 给 —— 绝大多数自带音轨 |
+
+原始 `.m4s` 分片特殊：后缀分不出音视频轨，所以只有 `true` 才放行。
+另外合并进行中（`dashMerge` 未完成）时所有手动入口都关掉，否则可能读到
+刚写了一半的 mp4。
+
+真碰上无声文件时，ffmpeg 的原话是 `Stream map '0:a:0' matches no streams.`，
+这一行不含 error 字样，会被错误提取逻辑跳过，最后返回的是
+`To ignore this, add a trailing '?' to the map.` —— 对用户毫无意义。
+所以引擎在这里单独拦一层，抛 `TranscodeUnsupportedSource`，文案是
+「这个文件里没有音轨，无法提取 MP3（多半是纯视频轨或无声视频）」。
+
+`-map 0:a:0` 是必须的：多音轨的片源（双语版）不指定时 ffmpeg 按 default
+标记挑，选中的不一定是用户以为的那条。不加 `-ac 2`：实测 5.1 源 ffmpeg
+会自动降混到立体声，强行指定反而把单声道源也变成双声道、文件白白大一倍。
 
 ---
 
@@ -1320,6 +1349,7 @@ sniffing-browser/
 | DASH 分轨（无声视频） | B 站把画面和声音拆成两条 `xxx.m4s`，各自只有一条流。只下视频轨得到的是哑的 mp4，抽音轨会报 `Output file does not contain any stream` | 队列按文件名前缀自动配对，补下音频轨后 `-c copy` 合并；实测 4s 素材合并耗时 0.06s。见 5.8 |
 | 移动端分不清音视频轨 | `onLoadResource` 拿不到 MIME，`.m4s` 只能按视频轨处理，配对因此失效 | 降级为单轨下载（正常，无声），日志里写明「没找到配对的音频轨」；彻底解决要在端上补 MIME 或解析 MPD |
 | 音轨残缺导致视频被截 | `-shortest` 按最短的一路截断，音轨不完整时会把视频砍掉一大截（实测 4s→2s） | 合并命令不加 `-shortest`；合并前探测两路时长，差异 >5% 记 warn 但不阻断 |
+| 对无声视频抽 MP3 失败 | ffmpeg 报 `Stream map '0:a:0' matches no streams.`，这行不含 error 字样，会被通用错误提取逻辑跳过，最后返回的是 `To ignore this, add a trailing '?' to the map.` | 引擎单独识别这类 stderr，抛 `TranscodeUnsupportedSource` 给中文结论；UI 侧用 `mergedAudio` 三态提前把已知无声的文件挡掉 |
 
 **合规说明**：本工具仅供下载用户有权访问的内容，使用者需自行确保不侵犯版权及违反站点服务条款。
 
