@@ -11,7 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # 状态管理：异步任务多，用 AsyncValue 省样板代码
+  # 状态管理：应用级 ChangeNotifierProvider + 任务级 ValueNotifier
   flutter_riverpod: ^2.6.1
 
   # WebView —— 三端共用
@@ -55,8 +55,8 @@ flutter:
 # fork 保留 android/ 与 windows/ 目录，因此同一份依赖可覆盖三端，
 # 不需要按平台切换。改动后执行 flutter clean && flutter pub get。
 #
-# FFmpeg 在阶段 5 才引入，届时按平台二选一：
-#   Android/Windows: ffmpeg_kit_flutter_new  (含 libmp3lame)
-#   HarmonyOS:       @ohos/ffmpeg-kit        (ohpm 依赖，非 pub 依赖)
-# 现在用 TranscodeEngine 抽象占位，不引入几十 MB 的原生包。
+# 转码不引 FFmpeg pub 包：桌面端 SystemFfmpegEngine 调本机 ffmpeg 进程，
+# Android 端 NativeTranscodeEngine 走 MethodChannel，由 android/app 的
+# dev.ffmpegkit-maintained:ffmpeg-kit-full AAR 实现；鸿蒙仍未接入。
+# 桌面端可用 SNIFF_FFMPEG_DIR 指定 ffmpeg 所在目录。
 # ---------------------------------------------------------------------------
