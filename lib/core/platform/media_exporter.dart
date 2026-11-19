@@ -38,6 +38,10 @@ class ExportResult {
       case ExportStatus.notExported:
         return '未导出';
       case ExportStatus.done:
+        // 移动端 targetPath 是 content:// 的媒体库 URI，直接给用户看没有意义，
+        // 由 MediaExporter 填好人类可读的目录名。
+        final String? label = message;
+        if (label != null && label.isNotEmpty) return label;
         return '已保存到${targetPath ?? '目标目录'}';
       case ExportStatus.unsupported:
         return message ?? '该类型不支持导出到此处';
@@ -124,6 +128,7 @@ class MediaExporter {
           return ExportResult(
             ExportStatus.done,
             targetPath: result['uri'] as String?,
+            message: '已保存到「${_libraryLabel(target, filePath)}」',
           );
         case 'unsupported':
           return ExportResult(
@@ -145,6 +150,61 @@ class MediaExporter {
     }
   }
 
+  /// 用系统默认程序打开产物。
+  ///
+  /// [target] 可以是媒体库 URI（`content://`），也可以是本地绝对路径：
+  /// Android 侧会把路径换成 FileProvider 的 `content://` 再带读授权交出去
+  /// （见 `file_paths.xml`），所以没导出过的产物也能直接打开。
+  /// 返回 false 表示没有可用的处理程序，调用方给一句提示即可。
+  static Future<bool> openFile(String target) async {
+    if (PlatformInfo.isDesktop) {
+      try {
+        final String exe = Platform.isWindows
+            ? 'cmd'
+            : (Platform.isMacOS ? 'open' : 'xdg-open');
+        final List<String> args = Platform.isWindows
+            ? <String>['/c', 'start', '', target]
+            : <String>[target];
+        await Process.start(exe, args, mode: ProcessStartMode.detached);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    try {
+      final bool? ok =
+          await _channel.invokeMethod<bool>('openMedia', <String, Object?>{
+        'uri': target,
+      });
+      return ok ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// 调系统分享面板把产物发给别的应用。
+  ///
+  /// 只有 Android 有等价能力（`ACTION_SEND` + FileProvider 的 `content://`）；
+  /// 桌面没有系统级分享面板，直接返回 false，由调用方决定是否隐藏入口。
+  static Future<bool> shareFile(String path) async {
+    if (PlatformInfo.isDesktop) return false;
+
+    try {
+      final bool? ok =
+          await _channel.invokeMethod<bool>('shareMedia', <String, Object?>{
+        'path': path,
+      });
+      return ok ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   static Future<ExportResult> _copyToDesktop(File source, String name) async {
     try {
       final File target = StoragePaths.uniqueFile(name);
@@ -152,6 +212,27 @@ class MediaExporter {
       return ExportResult(ExportStatus.done, targetPath: target.path);
     } catch (e) {
       return ExportResult(ExportStatus.failed, message: e.toString());
+    }
+  }
+
+  /// 媒体库里的落点，用用户能对照的目录名描述。
+  ///
+  /// 实际路径由原生侧拼成 `Music/SniffingBrowser` 这类形式
+  /// （见 `MediaExporterHandler.kt` 的 `destination()`），Dart 侧没有
+  /// 可靠的读取手段，所以这里只做文案映射，两边要保持一致。
+  static String _libraryLabel(ExportTarget target, String filePath) {
+    final String ext = p.extension(filePath).toLowerCase();
+    switch (target) {
+      case ExportTarget.music:
+        return '音乐/SniffingBrowser';
+      case ExportTarget.file:
+        return '下载/SniffingBrowser';
+      case ExportTarget.gallery:
+        return const <String>[
+          '.mp4', '.m4v', '.mov', '.mkv', '.webm', '.3gp',
+        ].contains(ext)
+            ? '视频/SniffingBrowser'
+            : '相册/SniffingBrowser';
     }
   }
 
