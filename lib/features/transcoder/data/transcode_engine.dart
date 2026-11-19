@@ -15,12 +15,21 @@ class TranscodeUnsupportedSource implements Exception {
   String toString() => message;
 }
 
+/// 用户主动取消。和失败区分开，UI 上显示「已取消」而不是「失败」。
+///
+/// 放在引擎抽象层而不是桌面实现里：移动端走原生 session，同样需要表达取消，
+/// 若留在 system_ffmpeg_engine.dart 会形成反向依赖。
+class TranscodeCancelled implements Exception {
+  const TranscodeCancelled();
+  @override
+  String toString() => '已取消';
+}
+
 /// 转换引擎抽象。
 ///
 /// 为什么不在这一层直接依赖 ffmpeg 包：
-/// FFmpeg 在三个平台是三个不同的东西
-/// （Android `ffmpeg_kit_flutter_new` / 鸿蒙 `@ohos/ffmpeg-kit` / Windows 同 Android），
-/// 而 Dart 没有按平台条件依赖的语法。先留接口，阶段 5 按实测结果接实现。
+/// 桌面端调本机 ffmpeg 进程，移动端走原生通道，两者无法共用一个 pub 依赖。
+/// 由 TranscodeQueue 按平台选实现：桌面 SystemFfmpegEngine，其余 NativeTranscodeEngine。
 abstract class TranscodeEngine {
   /// 引擎是否可用。UI 用它决定要不要显示转换入口。
   Future<bool> isAvailable();
@@ -68,15 +77,33 @@ abstract class TranscodeEngine {
   }
 }
 
-/// 走原生桥接的实现。
+/// 走 Android 原生 FFmpegKit 的实现。
 ///
-/// 原生侧接好之后（Android 用 FFmpegKit，鸿蒙用 ohos_ffmpeg_kit），
-/// 只需要实现这个 channel，Dart 侧一行不用改。
+/// 契约要点：`startTranscode` 的回复由原生侧**挂起**到 FFmpeg session 结束才返回，
+/// 所以这里的 await 天然等于「等这一路转码跑完」，队列不需要额外同步。
+/// 进度则由原生通过同一个 channel 反向调用 `onProgress` 推过来。
 class NativeTranscodeEngine extends TranscodeEngine {
   static const MethodChannel _channel =
       MethodChannel('sniffing_browser/transcoder');
 
+  /// 当前正在跑的那一路的进度回调。队列严格串行，同一时刻只会有一个。
+  static void Function(double)? _progressSink;
+  static bool _handlerInstalled = false;
+
   bool? _available;
+
+  static void _ensureHandler() {
+    if (_handlerInstalled) return;
+    _handlerInstalled = true;
+    _channel.setMethodCallHandler((MethodCall call) async {
+      if (call.method == 'onProgress') {
+        final Object? value = call.arguments;
+        if (value is num) _progressSink?.call(value.toDouble());
+        return null;
+      }
+      throw MissingPluginException('未知的原生回调：${call.method}');
+    });
+  }
 
   @override
   Future<bool> isAvailable() async {
@@ -84,13 +111,14 @@ class NativeTranscodeEngine extends TranscodeEngine {
     if (cached != null) return cached;
     try {
       final bool? result = await _channel.invokeMethod<bool>('isAvailable');
-      _available = result ?? false;
+      // 只缓存成功结论：native 库偶发未就绪时返回 false，不该永远把入口判死。
+      if (result == true) _available = true;
+      return result ?? false;
     } on MissingPluginException {
-      _available = false;
+      return false;
     } on PlatformException {
-      _available = false;
+      return false;
     }
-    return _available!;
   }
 
   @override
@@ -105,25 +133,54 @@ class NativeTranscodeEngine extends TranscodeEngine {
     if (!await isAvailable()) {
       throw UnsupportedError('当前平台尚未接入 FFmpeg，转换功能不可用');
     }
-    await _channel.invokeMethod<void>('startTranscode', <String, Object?>{
-      'input': inputPath,
-      'secondaryInput': secondaryInputPath,
-      'output': outputPath,
-      'kind': kind.name,
-      'command': buildCommand(
-        inputPath: inputPath,
-        outputPath: outputPath,
-        kind: kind,
-        secondaryInputPath: secondaryInputPath,
-      ),
-    });
+
+    _ensureHandler();
+    _progressSink = onProgress;
+    try {
+      final Map<Object?, Object?>? reply =
+          await _channel.invokeMethod<Map<Object?, Object?>>(
+        'startTranscode',
+        <String, Object?>{
+          'input': inputPath,
+          'secondaryInput': secondaryInputPath,
+          'output': outputPath,
+          'kind': kind.name,
+        },
+      );
+
+      final String status = reply?['status'] as String? ?? 'failed';
+      final String? message = reply?['message'] as String?;
+      switch (status) {
+        case 'done':
+          onProgress(1);
+          return;
+        case 'canceled':
+          throw const TranscodeCancelled();
+        case 'unsupported':
+          throw TranscodeUnsupportedSource(
+            message ?? '这个文件里没有音轨，无法提取 MP3',
+          );
+        default:
+          throw StateError(message ?? '原生转换失败');
+      }
+    } on PlatformException catch (e) {
+      throw StateError(e.message ?? e.code);
+    } finally {
+      _progressSink = null;
+    }
   }
 
   @override
   Future<void> cancel(String jobId) async {
     if (!await isAvailable()) return;
-    await _channel.invokeMethod<void>('cancelTranscode', <String, Object?>{
-      'jobId': jobId,
-    });
+    try {
+      await _channel.invokeMethod<void>('cancelTranscode', <String, Object?>{
+        'jobId': jobId,
+      });
+    } on MissingPluginException {
+      // 原生侧已不在（比如引擎重建），忽略即可，会话自己会结束。
+    } on PlatformException {
+      // 同上。
+    }
   }
 }

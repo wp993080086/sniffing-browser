@@ -8,6 +8,10 @@ import '../../../core/logging/app_log.dart';
 import '../domain/transcode_job.dart';
 import 'transcode_engine.dart';
 
+// 历史上有测试从本文件引用 TranscodeCancelled；类型已上移到引擎抽象层，
+// 这里 re-export 保持 import 路径不变。
+export 'transcode_engine.dart' show TranscodeCancelled;
+
 /// 直接调用系统上的 ffmpeg 可执行文件。
 ///
 /// 为什么桌面端走这条路而不是 `ffmpeg_kit_flutter`：桌面本来就能跑原生进程，
@@ -407,9 +411,3 @@ bool _looksLikeNoAudioStream(String text) {
       lower.contains('could not find codec parameters for stream 0 (audio');
 }
 
-/// 用户主动取消。和失败区分开，UI 上显示「已取消」而不是「失败」。
-class TranscodeCancelled implements Exception {
-  const TranscodeCancelled();
-  @override
-  String toString() => '已取消';
-}

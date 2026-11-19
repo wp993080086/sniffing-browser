@@ -183,6 +183,26 @@ class TranscodeJob {
 
   String? error;
 
+  /// 移动端转换完成后的落库结果，供 UI 显示「已保存到哪个目录」。
+  ///
+  /// Android 的产物先写在应用私有目录，而 `Android/data` 在 Android 11+
+  /// 的文件管理器里进不去、媒体库也扫不到，必须再由原生写进 MediaStore，
+  /// 用户才能在自己的音乐 / 视频 App 里看到。桌面产物直接落在下载目录，
+  /// 这里保持为 null。
+  String? exportMessage;
+
+  /// 产物是否真的进了系统媒体库。false 时 [exportMessage] 是失败原因。
+  bool exported = false;
+
+  /// 媒体库里的产物地址（Android 是 `content://media/...`）。
+  ///
+  /// 「打开产物」必须用它而不是 [outputPath]：私有目录那份文件外部应用无权读，
+  /// 而 `content://` 由原生层带着读授权交给播放器。桌面没有入库这一步，保持 null。
+  String? mediaUri;
+
+  /// 产物实际所在位置：合并任务覆盖了源文件，其余是新建的输出文件。
+  String get artifactPath => replaceSource ? sourcePath : outputPath;
+
   /// 同 [DownloadTask]：进程还没退出时界面可能已经关掉，之后回调要静音。
   bool _disposed = false;
 
