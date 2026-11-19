@@ -106,9 +106,12 @@ class DownloadTile extends ConsumerWidget {
       case DownloadStatus.running:
         if (task.isStream) {
           final int total = task.totalSegments ?? 0;
-          return total > 0
-              ? '${task.segmentDone}/$total 分片'
-              : '${task.segmentDone} 分片已下载';
+          if (total <= 0) return '${task.segmentDone} 分片已下载';
+          final int percent = (task.segmentDone * 100 / total).round().clamp(
+            0,
+            100,
+          );
+          return '${task.segmentDone}/$total 分片 · $percent%';
         }
         final int percent = (task.progress.value * 100).round();
         final String size = FormatUtil.bytes(task.totalBytes);

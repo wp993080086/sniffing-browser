@@ -34,7 +34,10 @@ class DownloadTask {
 
   /// HLS / DASH 任务，进度按分片计而不是按字节。
   final bool isStream;
-  final int? totalSegments;
+
+  /// 分片总数。只有解析完 playlist 才知道，所以不能是 final —— 入队时是 null，
+  /// 下载器第一次回调进度时才填上。
+  int? totalSegments;
 
   DownloadStatus _status;
   DownloadStatus get status => _status;
@@ -98,6 +101,7 @@ class DownloadTask {
     if (_disposed) return;
     segmentDone = done;
     if (total <= 0) return;
+    totalSegments = total;
     progress.value = (done / total).clamp(0.0, 1.0);
   }
 

@@ -154,10 +154,11 @@ class FileDownloader {
         lastError = e;
         if (CancelToken.isCancel(e)) rethrow;
         if (attempt == retries) break;
-        await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+        await Future<void>.delayed(_backoff(e, attempt, 400));
       }
     }
 
+    _logTimeout(lastError, url);
     throw lastError is DioException
         ? lastError
         : DownloadException(_describeError(lastError), url: url);
@@ -220,9 +221,10 @@ class FileDownloader {
         lastError = e;
         if (CancelToken.isCancel(e)) rethrow;
         if (attempt == retries) break;
-        await Future<void>.delayed(Duration(milliseconds: 300 * (attempt + 1)));
+        await Future<void>.delayed(_backoff(e, attempt, 300));
       }
     }
+    _logTimeout(lastError, url);
     throw lastError is DioException
         ? lastError
         : DownloadException(_describeError(lastError), url: url);
@@ -432,6 +434,40 @@ class FileDownloader {
         '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
   }
 
+  /// 失败后的等待时长。
+  ///
+  /// 连不上（超时 / 连接失败）基本是站点限流或线路抖动，几百毫秒后重来只会
+  /// 立刻再撞一次；这类错误要多等一会儿才有机会恢复。其余错误保持原来的
+  /// 快速重试节奏。
+  static Duration _backoff(DioException error, int attempt, int baseMs) {
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return Duration(seconds: 2 + attempt * 4);
+      default:
+        return Duration(milliseconds: baseMs * (attempt + 1));
+    }
+  }
+
+  /// 记录「根本没连上」这类失败。
+  ///
+  /// 之前只记 403，用户反馈「重试一直失败」时日志里什么都没有，分不清是
+  /// 站点拒绝、DNS 挂了还是隧道断了。只记主机名，不记完整 URL 的 query。
+  static void _logTimeout(Object? error, String url) {
+    if (error is! DioException) return;
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.connectionError:
+        final String host = Uri.tryParse(url)?.host ?? url;
+        logWarn('Download', '请求失败 ${error.type.name} $host');
+      default:
+        return;
+    }
+  }
+
   String _describeError(Object? error) {
     if (error is DioException) {
       switch (error.type) {
@@ -439,7 +475,7 @@ class FileDownloader {
         case DioExceptionType.sendTimeout:
         case DioExceptionType.receiveTimeout:
         case DioExceptionType.transformTimeout:
-          return '连接超时，站点可能限制了这个地址';
+          return '连接超时，站点可能限制了该地址；稍后重试，或回原页面重新嗅探';
         case DioExceptionType.badResponse:
           final int? code = error.response?.statusCode;
           if (code == 403) {

@@ -1,0 +1,47 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sniffing_browser/features/downloader/domain/download_task.dart';
+import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
+
+DownloadTask streamTask() => DownloadTask(
+  id: 't1',
+  mediaId: 'm1',
+  url: 'https://example.com/video.m3u8',
+  type: MediaType.hls,
+  fileName: 'video.ts',
+  createdAt: DateTime(2026, 11, 19),
+  isStream: true,
+);
+
+void main() {
+  group('分片进度', () {
+    test('第一次回调就把总数记到任务上，列表才能显示 206/430', () {
+      final DownloadTask task = streamTask();
+      expect(task.totalSegments, isNull);
+
+      task.updateSegments(206, 430);
+
+      expect(task.segmentDone, 206);
+      expect(task.totalSegments, 430);
+      expect(task.progress.value, closeTo(206 / 430, 1e-9));
+    });
+
+    test('总数为 0 时只更新已完成数，不清掉已有总数', () {
+      final DownloadTask task = streamTask()..updateSegments(10, 100);
+
+      task.updateSegments(11, 0);
+
+      expect(task.segmentDone, 11);
+      expect(task.totalSegments, 100);
+      expect(task.progress.value, closeTo(0.1, 1e-9));
+    });
+
+    test('dispose 之后的回调不抛异常也不改状态', () {
+      final DownloadTask task = streamTask()..dispose();
+
+      task.updateSegments(5, 10);
+
+      expect(task.totalSegments, isNull);
+      expect(task.segmentDone, 0);
+    });
+  });
+}

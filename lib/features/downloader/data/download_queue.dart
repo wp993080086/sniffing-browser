@@ -269,6 +269,8 @@ class DownloadQueue extends ChangeNotifier {
     task.dispose();
     _safeNotify();
     _schedulePersist();
+    // 分片临时目录不会自己消失：删了记录还留着就是纯占空间。
+    unawaited(StoragePaths.cleanTemp(taskId));
   }
 
   void clearFinished() {
@@ -279,6 +281,7 @@ class DownloadQueue extends ChangeNotifier {
       _tasks.remove(task);
       _forgetPairState(task);
       task.dispose();
+      unawaited(StoragePaths.cleanTemp(task.id));
     }
     _safeNotify();
     _schedulePersist();

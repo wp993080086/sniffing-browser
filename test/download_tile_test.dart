@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sniffing_browser/features/downloader/domain/download_status.dart';
 import 'package:sniffing_browser/features/downloader/domain/download_task.dart';
 import 'package:sniffing_browser/features/downloader/presentation/download_tile.dart';
 import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
@@ -58,5 +59,31 @@ void main() {
     );
 
     expect(items, isNot(contains('打开')));
+  });
+
+  testWidgets('HLS 任务同时显示分片进度和百分比', (WidgetTester tester) async {
+    final DownloadTask task = DownloadTask(
+      id: 'h1',
+      mediaId: 'm-h1',
+      url: 'https://example.com/video.m3u8',
+      type: MediaType.hls,
+      fileName: 'video.ts',
+      createdAt: DateTime(2026, 11, 19),
+      isStream: true,
+    )..setStatus(DownloadStatus.running);
+    task.updateSegments(206, 430);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(body: DownloadTile(task: task)),
+        ),
+      ),
+    );
+    // 未完成任务的进度条是不确定动画，不能 pumpAndSettle。
+    await tester.pump();
+
+    // 206 / 430 = 47.9%，四舍五入到 48。
+    expect(find.text('206/430 分片 · 48%'), findsOneWidget);
   });
 }
