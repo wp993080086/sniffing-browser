@@ -6,22 +6,21 @@ class AppConstants {
 
   static const String appName = 'Sniffing Browser';
 
-  /// 首次启动的首页。留空则显示引导页。
-  static const String _fallbackHomeUrl = 'https://www.bing.com';
-
-  /// 首页地址。支持用环境变量覆盖，方便用命令行复现某个页面的问题：
+  /// 启动时直接加载的网址。未设置则显示自写首页。
+  ///
+  /// 用环境变量指定，方便用命令行复现某个页面的问题：
   ///
   /// ```bash
   /// SNIFF_HOME_URL=https://example.com ./sniffing_browser.exe
   /// ```
-  static String get defaultHomeUrl {
+  static String? get startupUrl {
     try {
       final String? override = Platform.environment['SNIFF_HOME_URL'];
       if (override != null && override.isNotEmpty) return override;
     } catch (_) {
-      // 取不到环境变量就用默认值
+      // 取不到环境变量就显示自写首页
     }
-    return _fallbackHomeUrl;
+    return null;
   }
 
   /// 同时进行的下载任务数上限。
