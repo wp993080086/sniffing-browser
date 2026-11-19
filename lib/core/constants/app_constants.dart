@@ -4,7 +4,8 @@ import 'dart:io';
 class AppConstants {
   const AppConstants._();
 
-  static const String appName = 'Sniffing Browser';
+  /// 应用展示名。当前只有中文，未做国际化。
+  static const String appName = '嗅探浏览器';
 
   /// 启动时直接加载的网址。未设置则显示自写首页。
   ///

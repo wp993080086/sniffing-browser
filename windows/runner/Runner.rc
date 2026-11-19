@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.sniffing" "\0"
-            VALUE "FileDescription", "sniffing_browser" "\0"
+            VALUE "FileDescription", "嗅探浏览器" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "sniffing_browser" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.sniffing. All rights reserved." "\0"
             VALUE "OriginalFilename", "sniffing_browser.exe" "\0"
-            VALUE "ProductName", "sniffing_browser" "\0"
+            VALUE "ProductName", "嗅探浏览器" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -75,7 +75,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"sniffing_browser", origin, size)) {
+  // Window title is the Chinese app display name. Written with universal
+  // character names because MSVC reads sources without a BOM as ANSI, which
+  // would garble UTF-8 literals.
+  if (!window.Create(L"\u55C5\u63A2\u6D4F\u89C8\u5668", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

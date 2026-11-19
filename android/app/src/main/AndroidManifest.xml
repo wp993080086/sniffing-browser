@@ -4,10 +4,13 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28"/>
+    <!-- 浏览器必须能打开 http:// 页面。targetSdk 28 起系统默认禁明文，
+         不显式打开的话 WebView 会直接返回 ERR_CLEARTEXT_NOT_PERMITTED。 -->
     <application
-        android:label="sniffing_browser"
+        android:label="嗅探浏览器"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

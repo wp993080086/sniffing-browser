@@ -2047,6 +2047,7 @@ A1 → A3 → A4 → A5 → A6 顺序执行完毕 —— 自写首页正常显�
 | ~~任务队列未持久化~~ | `DownloadQueue` 曾只在内存里保存 `List<DownloadTask>` | **已化解**（2026-11-12）：`DownloadStore` 落 `download_tasks.json`，位置必须是私有 files 目录而非 cache，见 5.6 / 5.7 |
 | 多页签 + 视频列表页卡顿 | 后台页签挂起、媒体播放互斥、抽帧串行 | 2026-11-13 调优，见上；后台页签的 JS 定时器仍在跑（Android 没有单实例暂停 API），彻底停只能销毁 WebView |
 | 单文件不支持字节级续传 | `file_downloader.dart` 明确不支持 Range 续传 | 中断后需重新下载；HLS 只有分片级续传（`.part` 存在即跳过） |
+| http 页面打不开 | targetSdk ≥ 28 起系统默认禁明文，WebView 打开 `http://` 直接 `ERR_CLEARTEXT_NOT_PERMITTED`；Dart 侧自己的 socket 不受此限制，所以「下载 http 分片正常、页面打不开」很容易被误判成站点问题 | `AndroidManifest.xml` 显式 `android:usesCleartextTraffic="true"`（2026-11-19 真机实测踩到并补上） |
 | 缩略图流量 | 每条图片资源都要再请求一次原图，长列表快速滚动会把整页图片重新下一遍 | 并发 3 + 排队上限 8 + 单图 3 MB 上限 + 8 秒超时，超出的这一轮跳过；见 5.2.1 |
 | 视频抽帧耗时 | `MediaMetadataRetriever` 无超时参数，慢站点可能长时间不返回 | 原生侧固定两线程（一条卡住不影响其他条目），Dart 侧 12 秒 `Future.timeout` 兜底，超时即退回图标 |
 | 缩略图与下载重复取数 | 缩略图请求和实际下载是两次独立网络请求，同一文件多花一份流量 | 缩略图只取必要字节（图片降采样、视频只读关键帧附近），不下载完整文件 |
