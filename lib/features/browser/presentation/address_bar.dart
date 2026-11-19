@@ -176,7 +176,13 @@ class _NavButton extends StatelessWidget {
     return IconButton(
       icon: Icon(icon, size: 17, color: color),
       tooltip: tooltip,
-      onPressed: onPressed,
+      // 导航按钮不抢焦点，但也不能让地址栏继续占着焦点（键盘糊在网页上）。
+      onPressed: onPressed == null
+          ? null
+          : () {
+              FocusManager.instance.primaryFocus?.unfocus();
+              onPressed!();
+            },
       visualDensity: VisualDensity.compact,
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(minWidth: 36, minHeight: 36),

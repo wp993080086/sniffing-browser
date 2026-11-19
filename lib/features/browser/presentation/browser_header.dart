@@ -134,11 +134,14 @@ class _EngineButton extends ConsumerWidget {
   }
 }
 
-/// 拦截自动跳转的开关。
+/// 跳转隔离开关。
 ///
-/// 开着的时候，脚本发起的跨站顶层跳转会被取消（用户点链接、站内跳转照常）。
-/// 这是视频站 popunder 唯一的根治手段：不拦的话点一次播放能连跳几个广告站，
-/// 而且当前页被顶掉之后，嗅探到的 m3u8 会带错误的 Referer，下载必然 403。
+/// 开着的时候，脚本发起的跨站顶层跳转不在当前页打开，而是扔进后台页签
+/// （用户点链接、站内跳转照常）。视频站的 popunder 点一次能连跳几个广告站，
+/// 不隔离的话当前页会被顶成广告落地页 —— 连滚动位置和播放进度都一起丢，
+/// 而且之后嗅探到的 m3u8 会带错误的 Referer，下载必然 403。
+///
+/// 图标本身看不出用途，所以每次切换都报一句当前状态。
 class _RedirectGuardButton extends ConsumerWidget {
   const _RedirectGuardButton();
 
@@ -148,9 +151,20 @@ class _RedirectGuardButton extends ConsumerWidget {
     final bool on = tabs.blockAutoRedirect;
     return _BarButton(
       icon: on ? Icons.shield : Icons.shield_outlined,
-      tooltip: on ? '已拦截页面自动跳转（点击关闭）' : '未拦截自动跳转（点击开启）',
+      tooltip: on ? '脚本跳转在后台页签打开（点击关闭）' : '脚本跳转在当前页打开（点击开启）',
       highlighted: on,
-      onTap: () => tabs.setBlockAutoRedirect(!on),
+      onTap: () {
+        final bool next = !on;
+        tabs.setBlockAutoRedirect(next);
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(next ? '已开启：脚本跳转改在后台页签打开' : '已关闭：脚本跳转直接在当前页打开'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+      },
     );
   }
 }
@@ -243,7 +257,11 @@ class _BarButton extends StatelessWidget {
       message: tooltip,
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
+        // 点顶栏任何按钮都不该让地址栏继续占着焦点，否则键盘会一直糊在网页上。
+        onTap: () {
+          FocusManager.instance.primaryFocus?.unfocus();
+          onTap();
+        },
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
           child: Row(

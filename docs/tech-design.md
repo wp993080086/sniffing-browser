@@ -88,9 +88,9 @@ Windows 上这两个回调不可用，嗅探改走 CDP（见 2.3）：
 | API | ohos 支持 | 本项目是否依赖 |
 | --- | --- | --- |
 | `InAppWebView` / `InAppWebViewController` | 是 | 是 |
-| `evaluateJavascript` | 是 | 是（自动播放兜底脚本） |
-| `addJavaScriptHandler` | 是 | 否 |
-| `shouldOverrideUrlLoading` | 是 | **仅移动端**：拦截 `bilibili://` / `intent://` 等非 http 协议跳转；Windows 侧不启用 |
+| `evaluateJavascript` | 是 | 是（自动播放兜底、媒体治理、读取页面点击） |
+| `addJavaScriptHandler` | 是 | 是（`sb_open_tab` 新页签、`sb_user_tap` 收键盘） |
+| `shouldOverrideUrlLoading` | 是 | **仅移动端**：拦非 http 协议跳转 + 判定可疑跳转（见 8.0「可疑跳转隔离」）；Windows 侧不启用 |
 | `shouldInterceptRequest` | 是 | **核心依赖（仅移动端）**；Windows 侧不用 |
 | `onLoadResource` | 是 | **核心依赖（仅移动端）**；Windows 侧不存在 |
 | `useShouldInterceptAjaxRequest` | 是 | 否 |
@@ -1657,6 +1657,46 @@ sniffing-browser/
 3. 退不动 → `SystemNavigator.pop()`，正常退出。
 
 判定用的是实时 `canGoBack()` 而不是加载完成时的快照 —— 快照可能已经过期。
+
+**可疑跳转隔离（2026-11-19）**：popunder 有两种形态 —— 页面加载后定时器跳广告站、
+点一次播放连跳几个站。直接 `CANCEL` 会让用户「点了没反应」，所以改成**隔离**：
+可疑跳转不在当前页打开，改为后台开一个页签，当前页原地不动（滚动位置和播放
+进度都还在），也不给广告站改掉来源页的机会。
+
+判定收在 `data/nav_guard.dart`（纯逻辑，有单测），`shouldOverrideUrlLoading`
+只负责喂数据。**不能只看 `hasGesture`**：Android 上「点搜索结果 → 脚本中转 →
+跳转」是常态，这条链路里 `hasGesture` 为 `false`，照它判会把正常点击一起隔离。
+所以页面侧在 `_pagePatch` 里用 capture 阶段的 click 记录
+`window.__sbLastTap = href \t 时间戳`，导航时用 `evaluateJavascript` 读回来比对
+（300ms 超时：后台页签的 WebView 是挂起状态，求值可能一直不返回）：
+
+| 情况 | 处置 |
+| --- | --- |
+| 非 http/https（`intent://`、`bilibili://`） | `CANCEL` |
+| 服务器 302 | 放行（沿用本次导航的可信度） |
+| 站内跳转 | 放行 |
+| 同站弹窗中转页（`/pop?url=<外站>`） | 隔离 |
+| 点了链接，目标与那个链接同站 | 放行 |
+| 点了链接，目标却是别的站 | 隔离（点击被劫持） |
+| 点的是按钮 / div（没有链接） | 给一次机会，第二跳隔离 |
+| 完全没有点击的跨站跳转 | 隔离 |
+| `hasGesture` 为真但页面没上报 | 放行（拿不准不拦） |
+| 盾牌关掉 | 全部放行 |
+
+隔离页自己还会继续跳（广告落地页的标准行为），所以 `BrowserTab.spawnedInBackground`
+为真时不再派生新页签，同一 host 30 秒内也只隔离一次 —— 否则点一次能裂变出十几个
+页签。后台页签不进 `_live`，WebView 等激活时才创建，不占内存；代价是点「查看」
+时要重新加载那一页。
+
+顶栏第二层的盾牌（`_RedirectGuardButton`）是总开关，默认开；图标看不出用途，
+所以每次切换都弹一句状态提示。**来源页保护是独立的**：即使关掉隔离，
+`SnifferService.setCurrentPage(trusted:)` 也不会把脚本强跳过去的跨站页记成来源页，
+下载时带的 Referer 不会变成广告站。
+
+**地址栏焦点**：网页区域是 platform view，那里的点击 Flutter 收不到，`TextField`
+会一直保持焦点、键盘收不掉。现在四条路径都收：页面脚本的 `sb_user_tap` 回报、
+顶栏两层按钮（`_BarButton` / `_NavButton` 统一先 unfocus）、以及 `BrowserPage`
+整层的 `GestureDetector`（覆盖首页与顶栏空白）。
 
 **不持久化**：页签、当前页签、嗅探列表都只在内存里，杀掉应用回到一个首页。
 和嗅探悬浮按钮的位置一样，是刻意的（嗅探结果本来就是一次性的）。

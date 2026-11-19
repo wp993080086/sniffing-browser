@@ -8,9 +8,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/providers.dart';
 import '../../../core/logging/app_log.dart';
 import '../../../core/platform/platform_info.dart';
-import '../../../core/utils/site.dart';
 import '../../sniffer/data/cdp_sniffer.dart';
 import '../data/history_service.dart';
+import '../data/nav_guard.dart';
 import '../../sniffer/data/sniffer_service.dart';
 import '../providers/browser_tab.dart';
 import '../providers/tab_manager.dart';
@@ -81,12 +81,14 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
 
   /// 当前这次顶层导航是否可信（用户点链接 / 地址栏输入 / 站内跳转）。
   ///
-  /// 只在 [shouldOverrideUrlLoading] 里根据手势和站点关系判定，`onLoadStart` /
-  /// `onLoadStop` 拿它决定要不要把地址记成资源来源页。
+  /// 只在 [shouldOverrideUrlLoading] 里判定，`onLoadStart` / `onLoadStop`
+  /// 拿它决定要不要把地址记成资源来源页。
   bool _navTrusted = true;
 
-  /// 拦截提示的节流时间点。一个页面里连被拦好几次时只弹一次。
-  DateTime? _lastBlockedAt;
+  /// 已隔离过的站。同一广告站 30 秒内只开一个后台页签。
+  final Map<String, DateTime> _isolatedHosts = <String, DateTime>{};
+
+  final NavGuard _guard = NavGuard();
 
   BrowserTab get _tab => widget.tab;
   SnifferService get _sniffer => widget.tab.sniffer;
@@ -141,15 +143,12 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
 
   /// 顶层导航的放行判断。
   ///
-  /// 三类导航的处置完全不同：
+  /// 判定规则都在 [NavGuard] 里，这里只负责三件杂事：
   ///
-  /// - **非网页协议**（`intent://`、`bilibili://`、`weixin://`）一律取消，
-  ///   否则会落到 ERR_UNKNOWN_URL_SCHEME 错误页。
-  /// - **服务器重定向**沿用本次导航的可信度。302 到哪儿是站点自己的决定，
-  ///   重新判定只会把正常的登录 / 短链跳转拦下来。
-  /// - **脚本发起的跨站跳转**是 popunder 的典型形态（点一次按钮连跳几个广告
-  ///   站）。用户手势拿不到时只剩「是不是同一个站」这一个可靠信号：站内跳转
-  ///   放行，跨站拦截。
+  /// - 非网页协议（`intent://`、`bilibili://`、`weixin://`）一律取消，
+  ///   否则会落到 ERR_UNKNOWN_URL_SCHEME 错误页；
+  /// - 服务器重定向沿用本次导航的可信度 —— 302 到哪儿是站点自己的决定；
+  /// - 把页面刚上报的点击喂给判定，让「脚本中转的点击」不被当成弹窗。
   ///
   /// 拦截的第二个作用是保住来源页。当前页一旦被顶成广告落地页，之后嗅探到的
   /// m3u8 会带着广告站的 Referer 去下载，服务端校验必然 403。
@@ -164,30 +163,77 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
       return NavigationActionPolicy.CANCEL;
     }
 
+    // 服务器重定向沿用本次导航的可信度：302 到哪儿是站点自己的决定。
     if (action.isRedirect == true) return NavigationActionPolicy.ALLOW;
 
-    final bool byUser = action.hasGesture == true;
-    final bool sameSite = isSameSite(url, _tab.page.currentUrl);
-    _navTrusted = byUser || sameSite;
+    // 后台页签的 WebView 是挂起状态，求值可能一直不返回。导航判定必须
+    // 在几百毫秒内给出结论，否则插件那边会等不到回话，这次导航就卡住了。
+    final (String, int)? tap = await _readPageTap(
+      controller,
+    ).timeout(const Duration(milliseconds: 300), onTimeout: () => null);
+    if (tap != null) _guard.noteTap(href: tap.$1, atMs: tap.$2);
 
-    if (action.isForMainFrame && !_navTrusted && _tabs.blockAutoRedirect) {
-      logWarn('WebView', '已阻止自动跳转: $url');
-      _hintBlocked(url);
+    final NavVerdict verdict = _guard.decide(
+      url: url,
+      currentUrl: _tab.page.currentUrl,
+      hasUserGesture: action.hasGesture == true,
+      enabled: _tabs.blockAutoRedirect,
+      nowMs: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    _navTrusted = verdict == NavVerdict.allow;
+    if (verdict == NavVerdict.isolate) {
+      _isolate(url);
       return NavigationActionPolicy.CANCEL;
     }
     return NavigationActionPolicy.ALLOW;
   }
 
-  void _hintBlocked(String url) {
-    final DateTime now = DateTime.now();
-    final DateTime? last = _lastBlockedAt;
-    if (last != null && now.difference(last) < const Duration(seconds: 3)) {
+  /// 读页面最近一次点击：`href`（可能是空串）与发生时间。
+  ///
+  /// `window.__sbLastTap` 由 [_pagePatch] 写入，格式 `href \t 毫秒时间戳`。
+  /// 取不到（脚本还没注入、进程刚起来）就返回 null，交给判定按保守方式处理。
+  Future<(String, int)?> _readPageTap(InAppWebViewController controller) async {
+    try {
+      final Object? raw = await controller.evaluateJavascript(
+        source: 'window.__sbLastTap || ""',
+      );
+      String text = '$raw';
+      if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+        text = text.substring(1, text.length - 1);
+      }
+      final int sep = text.lastIndexOf('\t');
+      if (sep < 0) return null;
+      final int? at = int.tryParse(text.substring(sep + 1));
+      if (at == null) return null;
+      return (text.substring(0, sep), at);
+    } catch (e) {
+      logDebug('WebView', '读取页面点击失败: $e');
+      return null;
+    }
+  }
+
+  /// 把可疑跳转隔离到后台页签，当前页一行不动。
+  ///
+  /// 隔离页里自己还会继续跳（广告落地页就是这么干的），那边不再派生，
+  /// 否则点一次能裂变出十几个页签；同一个广告站 30 秒内也只留一个。
+  void _isolate(String url) {
+    if (_tab.spawnedInBackground) {
+      logInfo('WebView', '隔离页内忽略后续跳转: $url');
       return;
     }
-    _lastBlockedAt = now;
-    if (!mounted) return;
 
     final String host = Uri.tryParse(url)?.host ?? url;
+    final DateTime now = DateTime.now();
+    final DateTime? last = _isolatedHosts[host];
+    if (last != null && now.difference(last) < const Duration(seconds: 30)) {
+      return;
+    }
+    _isolatedHosts[host] = now;
+
+    final BrowserTab? tab = _tabs.openInBackground(url);
+    logWarn('WebView', '已把跳转隔离到后台页签: $url');
+    if (tab == null) return;
     final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
       context,
     );
@@ -196,11 +242,11 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text('已阻止自动跳转：$host'),
-          duration: const Duration(seconds: 3),
+          content: Text('已在后台页签打开：$host'),
+          duration: const Duration(seconds: 4),
           action: SnackBarAction(
-            label: '关闭拦截',
-            onPressed: () => _tabs.setBlockAutoRedirect(false),
+            label: '查看',
+            onPressed: () => _tabs.activateTab(tab.id),
           ),
         ),
       );
@@ -298,18 +344,21 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
 })();
 ''';
 
-  /// 把「新窗口打开」改写为「新页签打开」。
+  /// 页面侧补丁，一个页面只注入一次。
   ///
-  /// `supportMultipleWindows: false` 时，站点的 `target=_blank` 和 `window.open`
-  /// 会被 WebView 直接在当前页打开 —— 用户点一个链接，当前页就被顶掉了，
-  /// 这是之前最影响使用的一点。这里在 DOM 层接管：
+  /// 三件事：
   ///
-  /// - `a[target=_blank]` 的点击（capture 阶段，比站点自己的代理更早）；
-  /// - `window.open(url)` 的调用；
-  /// - 桌面习惯的 Ctrl / Cmd + 点击。
-  ///
-  /// 不改 `window.location` 的跳转 —— 那是页面内导航，本来就该留在当前页签。
-  static const String _openTabPatch = r'''
+  /// 1. 把「新窗口打开」改写为「新页签打开」。`supportMultipleWindows: false`
+  ///    时，站点的 `target=_blank` 和 `window.open` 会被 WebView 直接在当前页
+  ///    打开 —— 用户点一个链接，当前页就被顶掉了。这里在 DOM 层接管：
+  ///    `a[target=_blank]` 的点击（capture 阶段，比站点自己的代理更早）、
+  ///    `window.open(url)`、桌面习惯的 Ctrl / Cmd + 点击。不改
+  ///    `window.location` 的跳转 —— 那是页面内导航，本来就该留在当前页签。
+  /// 2. **记录真实点击**（`window.__sbLastTap` = `href \t 时间戳`）。原生
+  ///    `shouldOverrideUrlLoading` 拿不到可靠手势，导航判定要回来问页面。
+  /// 3. 点击时通知 Dart 收起地址栏键盘 —— 网页是 platform view，那里的
+  ///    点击 Flutter 收不到，只能让页面自己喊一声。
+  static const String _pagePatch = r'''
 (function () {
   if (window.__sbTabPatch) return 'skip';
   window.__sbTabPatch = true;
@@ -331,6 +380,22 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
     }
     return rawOpen ? rawOpen.apply(window, arguments) : null;
   };
+
+  document.addEventListener('click', function (e) {
+    var href = '';
+    var anchor = e.target;
+    while (anchor && anchor.tagName !== 'A') anchor = anchor.parentElement;
+    if (anchor) {
+      var lower = (anchor.href || '').toLowerCase();
+      if (lower.indexOf('http://') === 0 || lower.indexOf('https://') === 0) {
+        href = anchor.href;
+      }
+    }
+    window.__sbLastTap = href + '\t' + Date.now();
+    try {
+      window.flutter_inappwebview.callHandler('sb_user_tap');
+    } catch (err) {}
+  }, true);
 
   document.addEventListener('click', function (e) {
     var node = e.target;
@@ -430,17 +495,17 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
     }
   }
 
-  /// 每次加载完成后补一次新页签接管脚本（页面换掉后 window 是新的）。
-  Future<void> _installOpenTabPatch(InAppWebViewController controller) async {
+  /// 每次加载完成后补一次页面补丁（页面换掉后 window 是新的）。
+  Future<void> _installPagePatch(InAppWebViewController controller) async {
     try {
       final Object? result = await controller.evaluateJavascript(
-        source: _openTabPatch,
+        source: _pagePatch,
       );
       if ('$result' == 'ok') {
-        logInfo('WebView', '已接管新窗口打开（${_tab.id}）');
+        logInfo('WebView', '已接管新窗口打开与页面点击上报（${_tab.id}）');
       }
     } catch (e) {
-      logWarn('WebView', '新页签接管脚本执行失败: $e');
+      logWarn('WebView', '页面补丁执行失败: $e');
     }
   }
 
@@ -481,6 +546,19 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
         } catch (e) {
           logWarn('WebView', '注册新页签通道失败: $e');
         }
+        try {
+          controller.addJavaScriptHandler(
+            handlerName: 'sb_user_tap',
+            // 网页是 platform view，那里的点击 Flutter 拿不到，
+            // 地址栏的焦点（以及键盘）只能靠页面喊一声才收得起来。
+            callback: (List<dynamic> args) {
+              FocusManager.instance.primaryFocus?.unfocus();
+              return null;
+            },
+          );
+        } catch (e) {
+          logWarn('WebView', '注册点击通道失败: $e');
+        }
         if (_useCdp) {
           // 不 await：挂载失败不应该挡住页面加载，内部已经记了日志。
           _cdp.install(controller);
@@ -520,7 +598,7 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
         }
         await _tabs.handleLoadStop(_tab.id, url);
         _recordHistory(url);
-        unawaited(_installOpenTabPatch(controller));
+        unawaited(_installPagePatch(controller));
         unawaited(_installMediaGovernor(controller));
         if (widget.active) {
           // 首屏视频的 src 常常是 hydration 之后才挂上去的，等一会儿再兜一次。

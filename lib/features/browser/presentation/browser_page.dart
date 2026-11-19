@@ -34,39 +34,45 @@ class BrowserPage extends ConsumerWidget {
       },
       child: Scaffold(
         // 顶栏自绘（两层），不用 AppBar：一层的 52px 放不下导航 + 输入 + 功能入口。
-        body: Column(
-          children: <Widget>[
-            BrowserHeader(
-              onNavigate: (String value) =>
-                  ref.read(tabManagerProvider).navigate(value),
-            ),
-            // 所有存活页签同时挂在树上，切换只是换显示的那个：
-            // WebView 不重建，滚动位置、播放进度、表单内容都留着。
-            //
-            // 嗅探按钮也放在这一层：它只能盖住网页区域，拖不到顶栏上去。
-            Expanded(
-              child: Stack(
-                children: <Widget>[
-                  IndexedStack(
-                    index: index < 0 ? 0 : index,
-                    children: <Widget>[
-                      for (final BrowserTab tab in live)
-                        WebViewHost(
-                          key: ValueKey<String>(tab.id),
-                          tab: tab,
-                          // IndexedStack 只是不绘制：不告诉 WebView 自己已经
-                          // 在后台，它照样渲染、照样播视频、照样跑轮播。
-                          active: tab.id == tabs.activeId,
-                        ),
-                    ],
-                  ),
-                  if (active.page.isHomePage)
-                    const Positioned.fill(child: HomePage()),
-                  const SniffFab(),
-                ],
+        body: GestureDetector(
+          // 点顶栏空白、首页、面板都收键盘。网页区域是 platform view，
+          // Flutter 收不到那里的点击，由页面脚本回报（见 webview_host）。
+          behavior: HitTestBehavior.translucent,
+          onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+          child: Column(
+            children: <Widget>[
+              BrowserHeader(
+                onNavigate: (String value) =>
+                    ref.read(tabManagerProvider).navigate(value),
               ),
-            ),
-          ],
+              // 所有存活页签同时挂在树上，切换只是换显示的那个：
+              // WebView 不重建，滚动位置、播放进度、表单内容都留着。
+              //
+              // 嗅探按钮也放在这一层：它只能盖住网页区域，拖不到顶栏上去。
+              Expanded(
+                child: Stack(
+                  children: <Widget>[
+                    IndexedStack(
+                      index: index < 0 ? 0 : index,
+                      children: <Widget>[
+                        for (final BrowserTab tab in live)
+                          WebViewHost(
+                            key: ValueKey<String>(tab.id),
+                            tab: tab,
+                            // IndexedStack 只是不绘制：不告诉 WebView 自己已经
+                            // 在后台，它照样渲染、照样播视频、照样跑轮播。
+                            active: tab.id == tabs.activeId,
+                          ),
+                      ],
+                    ),
+                    if (active.page.isHomePage)
+                      const Positioned.fill(child: HomePage()),
+                    const SniffFab(),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

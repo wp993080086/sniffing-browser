@@ -97,18 +97,46 @@ class TabManager extends ChangeNotifier {
   }
 
   /// 新建页签。返回 null 表示已达上限，调用方自行降级。
-  BrowserTab? createTab({String? url, bool activate = true}) {
+  BrowserTab? createTab({
+    String? url,
+    bool activate = true,
+    bool background = false,
+  }) {
     if (_tabs.length >= maxTabs) {
       logWarn('Tabs', '页签数已达上限 $maxTabs，忽略新建');
       return null;
     }
-    return _create(url: url, activate: activate);
+    return _create(url: url, activate: activate, background: background);
   }
 
-  BrowserTab _create({String? url, bool activate = true}) {
+  /// 后台开一个页签，不切走当前页。页签开满时直接丢弃。
+  ///
+  /// 用来隔离「脚本发起的跨站跳转」：当前页原地不动，用户想看点提示切过去。
+  /// 后台页签不进 `_live`，WebView 等激活时才创建，所以不占内存。
+  BrowserTab? openInBackground(String url) {
+    if (url.isEmpty) return null;
+    final BrowserTab? tab = createTab(
+      url: url,
+      activate: false,
+      background: true,
+    );
+    if (tab == null) {
+      logWarn('Tabs', '页签已满，丢弃隔离页: $url');
+      return null;
+    }
+    logInfo('Tabs', '隔离到后台页签: $url');
+    return tab;
+  }
+
+  BrowserTab _create({
+    String? url,
+    bool activate = true,
+    bool background = false,
+  }) {
     final BrowserTab tab = BrowserTab(
       id: 'tab_${++_seq}',
       url: url ?? AppConstants.startupUrl,
+      spawnedInBackground: background,
     );
     _tabs.add(tab);
     if (activate || _activeId.isEmpty) {

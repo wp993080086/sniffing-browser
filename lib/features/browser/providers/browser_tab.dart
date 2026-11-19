@@ -7,7 +7,8 @@ import 'browser_provider.dart';
 /// 还在。代价是每个页签一份 [SnifferService]，但它只存 URL 和请求头
 /// （上限 800 条），相比一个 WebView 实例的内存可以忽略。
 class BrowserTab {
-  BrowserTab({required this.id, String? url}) : pendingUrl = url {
+  BrowserTab({required this.id, String? url, this.spawnedInBackground = false})
+    : pendingUrl = url {
     if (url != null && url.isNotEmpty) {
       page.markExternal(url);
     }
@@ -30,6 +31,12 @@ class BrowserTab {
 
   /// 最近一次成为活跃页签的时间，用于 LRU 淘汰。
   DateTime lastActive = DateTime.now();
+
+  /// 这个页签是被「弹窗隔离」自动开出来的（用户没主动点）。
+  ///
+  /// 用来自我抑制：广告落地页自己还会继续跳，如果那边也开新页签，
+  /// 一次点击能裂变出十几个后台页签。后台页签里的可疑跳转直接丢弃。
+  final bool spawnedInBackground;
 
   /// 卡片和地址栏上显示的名字。没标题就退回域名。
   String get displayTitle {
