@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/logging/app_log.dart';
+import '../../../core/platform/browser_headers.dart';
 import '../../../core/platform/platform_info.dart';
 import '../../sniffer/domain/media_type.dart';
 import 'media_validator.dart';
@@ -62,14 +63,58 @@ class FileDownloader {
   }) async {
     await target.parent.create(recursive: true);
     final File part = File('${target.path}.part');
-    if (await part.exists()) {
-      await part.delete();
-    }
 
     // Cookie 只取一次，重试沿用同一份：每次重试都过一遍 WebView 通道没有收益。
     final Map<String, String> requestHeaders = _sanitizeHeaders(
       await _withCookies(url, headers),
     );
+
+    final List<Map<String, String>> plans = <Map<String, String>>[
+      requestHeaders,
+      ..._retryPlan(requestHeaders, url),
+    ];
+
+    DioException? last;
+    for (int i = 0; i < plans.length; i++) {
+      try {
+        final File file = await _downloadOnce(
+          url: url,
+          part: part,
+          target: target,
+          headers: plans[i],
+          cancelToken: cancelToken,
+          onProgress: onProgress,
+          retries: i == 0 ? retries : 1,
+          expectType: expectType,
+        );
+        if (i > 0) logInfo('Download', '403 后第 $i 套请求头成功: $url');
+        return file;
+      } on DioException catch (error) {
+        if (CancelToken.isCancel(error)) rethrow;
+        last = error;
+        // 只有 403 值得换头重试：404 换头不会变好，超时换头也没意义。
+        if (error.response?.statusCode != 403) break;
+      }
+    }
+
+    await _explain403(last, url, plans.last);
+    throw DownloadException(_describeError(last), url: url, cause: last);
+  }
+
+  /// 单套请求头的下载循环。失败时抛最后一个 [DioException]，由外层决定要不要换头。
+  Future<File> _downloadOnce({
+    required String url,
+    required File part,
+    required File target,
+    required Map<String, String> headers,
+    required CancelToken? cancelToken,
+    required void Function(int received, int total)? onProgress,
+    required int retries,
+    required MediaType? expectType,
+  }) async {
+    if (await part.exists()) {
+      await part.delete();
+    }
 
     Object? lastError;
     for (int attempt = 0; attempt <= retries; attempt++) {
@@ -77,10 +122,7 @@ class FileDownloader {
         final Response<dynamic> response = await _dio.download(
           url,
           part.path,
-          options: Options(
-            headers: requestHeaders,
-            responseType: ResponseType.stream,
-          ),
+          options: Options(headers: headers, responseType: ResponseType.stream),
           cancelToken: cancelToken,
           deleteOnError: true,
           onReceiveProgress: onProgress,
@@ -111,17 +153,14 @@ class FileDownloader {
       } on DioException catch (e) {
         lastError = e;
         if (CancelToken.isCancel(e)) rethrow;
-        _logForbidden(e, url, requestHeaders);
         if (attempt == retries) break;
         await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1)));
       }
     }
 
-    throw DownloadException(
-      _describeError(lastError),
-      url: url,
-      cause: lastError,
-    );
+    throw lastError is DioException
+        ? lastError
+        : DownloadException(_describeError(lastError), url: url);
   }
 
   /// 直接取字节。用于小资源（playlist、密钥）。
@@ -135,31 +174,58 @@ class FileDownloader {
       await _withCookies(url, headers),
     );
 
+    final List<Map<String, String>> plans = <Map<String, String>>[
+      requestHeaders,
+      ..._retryPlan(requestHeaders, url),
+    ];
+
+    DioException? last;
+    for (int i = 0; i < plans.length; i++) {
+      try {
+        final List<int> bytes = await _fetchBytesOnce(
+          url: url,
+          headers: plans[i],
+          cancelToken: cancelToken,
+          retries: i == 0 ? retries : 1,
+        );
+        if (i > 0) logInfo('Download', '403 后第 $i 套请求头成功: $url');
+        return bytes;
+      } on DioException catch (error) {
+        if (CancelToken.isCancel(error)) rethrow;
+        last = error;
+        if (error.response?.statusCode != 403) break;
+      }
+    }
+
+    await _explain403(last, url, plans.last);
+    throw DownloadException(_describeError(last), url: url, cause: last);
+  }
+
+  Future<List<int>> _fetchBytesOnce({
+    required String url,
+    required Map<String, String> headers,
+    required CancelToken? cancelToken,
+    required int retries,
+  }) async {
     Object? lastError;
     for (int attempt = 0; attempt <= retries; attempt++) {
       try {
         final Response<List<int>> response = await _dio.get<List<int>>(
           url,
-          options: Options(
-            headers: requestHeaders,
-            responseType: ResponseType.bytes,
-          ),
+          options: Options(headers: headers, responseType: ResponseType.bytes),
           cancelToken: cancelToken,
         );
         return response.data ?? <int>[];
       } on DioException catch (e) {
         lastError = e;
         if (CancelToken.isCancel(e)) rethrow;
-        _logForbidden(e, url, requestHeaders);
         if (attempt == retries) break;
         await Future<void>.delayed(Duration(milliseconds: 300 * (attempt + 1)));
       }
     }
-    throw DownloadException(
-      _describeError(lastError),
-      url: url,
-      cause: lastError,
-    );
+    throw lastError is DioException
+        ? lastError
+        : DownloadException(_describeError(lastError), url: url);
   }
 
   Future<String> fetchString({
@@ -233,14 +299,39 @@ class FileDownloader {
     return result;
   }
 
-  /// 403 时把「实际发出去哪些头」记下来，排查缺 Referer 还是缺 Cookie 用。
+  /// 403 之后的换头顺序。顺序是踩出来的，不是排出来的：
+  ///
+  /// 1. 补齐浏览器该带、而 Dart 默认不带的头 —— 有的站点 WAF 就卡这几个；
+  /// 2. 换成中性 UA —— Cloudflare 的 Browser Integrity Check 会比对「UA 声称
+  ///    的浏览器」与客户端指纹，`dart:io` 带着 Chrome UA 出去会被判成伪装
+  ///    直接 403，换成不冒充浏览器的 UA（`okhttp/4.12.0`）反而通得过。
+  ///
+  /// 第 2 条是在真机上对比出来的：同一地址、同一 Referer，`Dart/3.9` 与
+  /// `okhttp/4.12.0` 是 200，Chrome / Firefox / Safari 的 UA 一律 403。
+  List<Map<String, String>> _retryPlan(
+    Map<String, String> headers,
+    String url,
+  ) {
+    final List<Map<String, String>> plan = <Map<String, String>>[];
+    final Map<String, String> withExtras = withBrowserHeaders(
+      headers,
+      url: url,
+    );
+    if (!identical(withExtras, headers)) plan.add(withExtras);
+    final Map<String, String>? neutral = withNeutralUserAgent(withExtras);
+    if (neutral != null) plan.add(neutral);
+    return plan;
+  }
+
+  /// 403 时把「实际发出去哪些头」记下来，再要一次响应体看拦截原因。
+  ///
   /// Cookie 只打名字不打值：写进日志是隐患。
-  void _logForbidden(
-    DioException error,
+  Future<void> _explain403(
+    DioException? error,
     String url,
     Map<String, String> headers,
-  ) {
-    if (error.response?.statusCode != 403) return;
+  ) async {
+    if (error?.response?.statusCode != 403) return;
 
     String referer = '(无)';
     String cookieNames = '(无)';
@@ -251,13 +342,64 @@ class FileDownloader {
     });
     // 有的站点是 Cloudflare / 字节 CDN 在拦，Server 和 CF-Ray 能直接区分
     // 「自己的头不对」和「被 WAF 挡了」这两种完全不同的原因。
-    final String server = error.response?.headers.value('server') ?? '-';
-    final String cfRay = error.response?.headers.value('cf-ray') ?? '-';
+    final Response<dynamic>? response = error?.response;
+    final String server = response?.headers.value('server') ?? '-';
+    final String cfRay = response?.headers.value('cf-ray') ?? '-';
     logWarn(
       'Download',
       '403 $url Referer=$referer Cookie=[$cookieNames] Server=$server CF-Ray=$cfRay',
     );
+
+    // 光看状态码分不清「WAF 按 IP 拦」和「客户端特征被拦」，两者的修法完全
+    // 相反。Cloudflare 的拦截页里有 error code，值得再花一个请求拿回来。
+    await _probe403Body(url, headers);
   }
+
+  Future<void> _probe403Body(String url, Map<String, String> headers) async {
+    try {
+      final Response<String> probe = await _dio.get<String>(
+        url,
+        options: Options(
+          headers: headers,
+          responseType: ResponseType.plain,
+          receiveTimeout: const Duration(seconds: 8),
+          validateStatus: (int? code) => code != null && code < 500,
+        ),
+      );
+      final String body = (probe.data ?? '').replaceAll(RegExp(r'\s+'), ' ');
+      final String snippet = body.length > 240
+          ? '${body.substring(0, 240)}…'
+          : body;
+      final String? code = _cloudflareCode(body);
+      _last403Hint = switch (code) {
+        // 1010：浏览器特征校验没过（UA / 头对不上）。
+        '1010' => '站点校验客户端特征未通过',
+        // 1020：按 IP / ASN 的规则直接拒 —— 换网络环境才有用。
+        '1020' => '站点按 IP 拦截，当前网络出口被拒',
+        '1015' => '站点限流',
+        _ => null,
+      };
+      logWarn(
+        'Download',
+        '403 诊断 $url status=${probe.statusCode} '
+            'cf-mitigated=${probe.headers.value('cf-mitigated') ?? '-'} '
+            'cf-code=${code ?? '-'} body=$snippet',
+      );
+    } catch (e) {
+      logDebug('Download', '403 诊断请求失败 $url: $e');
+    }
+  }
+
+  /// 从 Cloudflare 拦截页里抠出 4 位 error code。拿不到就返回 null。
+  static String? _cloudflareCode(String body) {
+    final RegExpMatch? match = RegExp(
+      r'(?:Error code|error code|"code")\D{0,10}(\d{4})',
+    ).firstMatch(body);
+    return match?.group(1);
+  }
+
+  /// 最近一次 403 的诊断结论，拼进给用户看的错误信息里。
+  String? _last403Hint;
 
   static String _cookieNames(String header) {
     final List<String> names = <String>[];
@@ -300,7 +442,13 @@ class FileDownloader {
           return '连接超时，站点可能限制了这个地址';
         case DioExceptionType.badResponse:
           final int? code = error.response?.statusCode;
-          if (code == 403) return '403 拒绝访问，缺少 Referer 或 Cookie';
+          if (code == 403) {
+            // 补过浏览器头还是被拒，说明不是「少个请求头」这么简单：
+            // 把 403 诊断出的结论带上，用户才知道该换网络还是该反馈。
+            final String? hint = _last403Hint;
+            _last403Hint = null;
+            return hint == null ? '403 拒绝访问，站点拒绝了这次请求' : '403 拒绝访问（$hint）';
+          }
           if (code == 404) return '404 资源不存在';
           return 'HTTP $code';
         case DioExceptionType.connectionError:

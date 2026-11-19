@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 
 import '../../../core/logging/app_log.dart';
+import '../../../core/platform/browser_headers.dart';
 import '../../../core/platform/platform_info.dart';
 import '../../../core/utils/serial_gate.dart';
 import '../../transcoder/data/system_ffmpeg_engine.dart';
@@ -90,12 +91,34 @@ class ThumbnailService {
     final Uri? uri = Uri.tryParse(item.url);
     if (uri == null || !uri.hasScheme) return null;
 
+    final Map<String, String> headers = requestHeaders(item);
+    (int, Uint8List?) result = await _fetchImage(uri, headers);
+    if (result.$1 == 403) {
+      // 与下载器同一套兜底：浏览器 UA 配 Dart 的指纹会被判成伪装，
+      // 缩略图失败只会退化成类型图标，但列表一眼全是图标同样难用。
+      final Map<String, String>? neutral = withNeutralUserAgent(headers);
+      if (neutral != null) result = await _fetchImage(uri, neutral);
+    }
+
+    final Uint8List? bytes = result.$2;
+    if (bytes == null) {
+      logDebug('Thumb', '图片 ${result.$1} ${item.url}');
+      return null;
+    }
+    return _downscale(bytes, maxWidth);
+  }
+
+  /// 取一张原图。返回 (状态码, 字节)；超过上限或读不到时字节为 null。
+  static Future<(int, Uint8List?)> _fetchImage(
+    Uri uri,
+    Map<String, String> headers,
+  ) async {
     final HttpClient client = HttpClient()
       ..connectionTimeout = _fetchTimeout
       ..autoUncompress = true;
     try {
       final HttpClientRequest request = await client.getUrl(uri);
-      requestHeaders(item).forEach((String key, String value) {
+      headers.forEach((String key, String value) {
         try {
           request.headers.set(key, value);
         } catch (_) {
@@ -107,13 +130,12 @@ class ThumbnailService {
         _fetchTimeout,
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        logDebug('Thumb', '图片 ${response.statusCode} ${item.url}');
-        return null;
+        return (response.statusCode, null);
       }
       final int declared = response.contentLength;
       if (declared > _maxImageBytes) {
-        logDebug('Thumb', '图片过大 ${declared}B，跳过 ${item.url}');
-        return null;
+        logDebug('Thumb', '图片过大 $declared B，跳过 $uri');
+        return (response.statusCode, null);
       }
 
       final BytesBuilder builder = BytesBuilder(copy: false);
@@ -121,16 +143,16 @@ class ThumbnailService {
       await for (final List<int> chunk in response.timeout(_fetchTimeout)) {
         total += chunk.length;
         if (total > _maxImageBytes) {
-          logDebug('Thumb', '图片超过上限，中止 ${item.url}');
-          return null;
+          logDebug('Thumb', '图片超过上限，中止 $uri');
+          return (response.statusCode, null);
         }
         builder.add(chunk);
       }
-      if (total == 0) return null;
-      return await _downscale(builder.takeBytes(), maxWidth);
+      if (total == 0) return (response.statusCode, null);
+      return (response.statusCode, builder.takeBytes());
     } catch (e, s) {
-      logDebug('Thumb', '取图失败 ${item.url}: $e\n$s');
-      return null;
+      logDebug('Thumb', '取图失败 $uri: $e\n$s');
+      return (0, null);
     } finally {
       client.close(force: true);
     }
@@ -241,7 +263,9 @@ class ThumbnailService {
     if (!hasReferer && item.pageUrl != null) {
       result['Referer'] = item.pageUrl!;
     }
-    return result;
+    // 缩略图没有「失败了再换一套头重试」的机会（失败就直接显示类型图标），
+    // 所以浏览器该带的那几个头一开始就补齐。
+    return withBrowserHeaders(result, url: item.url);
   }
 
   /// ffmpeg 的 `-headers` 是「多行字符串」，不是单个头，格式必须是 `Key: Value\r\n`。

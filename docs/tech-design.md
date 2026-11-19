@@ -671,6 +671,44 @@ class FileDownloader {
 - 文件名经 `StoragePaths.uniqueFile()` 消毒（Windows 非法字符 / 保留名 / 长度上限），
   重名时追加 ` (1)`、` (2)`
 
+#### 5.3.1 403 的真正原因：UA 与客户端指纹对不上（2026-11-19）
+
+同一个 m3u8、同一个 Referer，PC 上 curl 200，App 里一律 403，响应是
+`Server=cloudflare` + `CF-Ray=...`，且 Cookie 为空也照样 403 —— Referer 与 Cookie
+都不是原因。
+
+用同一份 Dart 代码在同一条网络路径上逐个变体对比，分界线在 User-Agent：
+
+| 发出的 User-Agent | 结果 |
+|---|---|
+| `Dart/3.9 (dart:io)`（不设 UA 时的默认值） | **200** |
+| `okhttp/4.12.0` | **200** |
+| Chrome 移动 / Chrome 桌面 | 403 |
+| Firefox / Safari | 403 |
+| 空字符串 | 403 |
+
+也就是说 Cloudflare 的 **Browser Integrity Check 会比对「UA 声称的浏览器」与客户端
+TLS 指纹**：`dart:io` 的指纹不是 Chrome，带着 Chrome 的 UA 出去就被判成伪装；
+反过来，不冒充浏览器的 UA 直接放行。curl 之所以一直 200，也是因为它既没声明
+自己是 Chrome，也没被归到「浏览器」那一类。
+
+所以 403 之后按两套头依次重试，任一套成功就继续下载：
+
+1. 补齐浏览器该带、而 Dart 默认不带的头（`Accept` / `Accept-Language` /
+   `sec-ch-ua*` / `Sec-Fetch-*`）—— 覆盖「WAF 只卡这几个头」的站点；
+2. 换成中性 UA `okhttp/4.12.0`，并去掉 `sec-ch-ua*`、`Sec-Fetch-*` —— 它们和
+   中性 UA 放在一起是自相矛盾，等于换个姿势继续冒充浏览器。
+
+实现见 `lib/core/platform/browser_headers.dart`。缩略图没有重试机会，403 时同样
+补一次中性 UA（`ThumbnailService._image`）。
+
+三个约束：
+
+- 只在 403 时才换头，本来能下的站点一次请求都不多花；
+- 404 / 超时不换头，换头不会让它们变好；
+- 中性 UA 只用于「已经被拒」的请求；正常站点仍按原样发，避免个别站点因为
+  UA 不是浏览器而返回降级内容。
+
 ### 5.4 HLS 下载
 
 这是整个项目最复杂的模块，拆成四步。实际代码落在
