@@ -13,7 +13,7 @@ import 'bookmark_store.dart';
 /// 顺序按加入时间倒序，最新的在最前。
 class BookmarkService extends ChangeNotifier {
   BookmarkService({BookmarkStore? store, this.maxEntries = 300})
-      : _store = store;
+    : _store = store;
 
   /// 为空表示纯内存模式（测试用）。
   final BookmarkStore? _store;
@@ -46,8 +46,10 @@ class BookmarkService extends ChangeNotifier {
       merged[entry.url] = entry;
     }
     final List<BookmarkEntry> list = merged.values.toList()
-      ..sort((BookmarkEntry a, BookmarkEntry b) =>
-          b.createdAt.compareTo(a.createdAt));
+      ..sort(
+        (BookmarkEntry a, BookmarkEntry b) =>
+            b.createdAt.compareTo(a.createdAt),
+      );
 
     _entries
       ..clear()

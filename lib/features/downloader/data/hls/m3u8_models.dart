@@ -97,12 +97,7 @@ class M3u8Segment {
 }
 
 class M3u8Key {
-  const M3u8Key({
-    required this.method,
-    this.uri,
-    this.iv,
-    this.keyFormat,
-  });
+  const M3u8Key({required this.method, this.uri, this.iv, this.keyFormat});
 
   /// NONE / AES-128 / SAMPLE-AES。
   final String method;

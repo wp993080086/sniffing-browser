@@ -48,7 +48,10 @@ void main() {
               ..writeln(url);
           }
           sb.writeln('#EXT-X-ENDLIST');
-          res.headers.contentType = ContentType('application', 'vnd.apple.mpegurl');
+          res.headers.contentType = ContentType(
+            'application',
+            'vnd.apple.mpegurl',
+          );
           res.write(sb.toString());
         } else {
           res.statusCode = HttpStatus.notFound;
@@ -84,8 +87,11 @@ void main() {
 
       await _waitFor(queue, task.id, const Duration(minutes: 3));
 
-      expect(task.status, DownloadStatus.completed,
-          reason: '任务未完成，error=${task.error}');
+      expect(
+        task.status,
+        DownloadStatus.completed,
+        reason: '任务未完成，error=${task.error}',
+      );
       expect(task.savedPath, isNotNull);
 
       final File output = File(task.savedPath!);
@@ -99,8 +105,7 @@ void main() {
       // 分片临时目录必须清理，否则每下完一个视频就留一堆垃圾
       final Directory tmp = StoragePaths.tempDirFor(task.id);
       final bool tmpExists = await tmp.exists();
-      final bool tmpEmpty =
-          !tmpExists || await tmp.list().isEmpty;
+      final bool tmpEmpty = !tmpExists || await tmp.list().isEmpty;
       expect(tmpEmpty, isTrue, reason: '临时目录没有清理');
 
       queue.dispose();

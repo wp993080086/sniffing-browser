@@ -60,10 +60,11 @@ void main() {
     }
 
     expect(history.count, 3);
-    expect(
-      history.entries.map((e) => e.url),
-      <String>['https://a.com/5', 'https://a.com/4', 'https://a.com/3'],
-    );
+    expect(history.entries.map((e) => e.url), <String>[
+      'https://a.com/5',
+      'https://a.com/4',
+      'https://a.com/3',
+    ]);
   });
 
   test('删除单条与清空', () {

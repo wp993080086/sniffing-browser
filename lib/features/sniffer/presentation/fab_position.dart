@@ -27,5 +27,4 @@ class SniffFabPosition extends ChangeNotifier {
 }
 
 final ChangeNotifierProvider<SniffFabPosition> sniffFabPositionProvider =
-    ChangeNotifierProvider<SniffFabPosition>(
-        (Ref ref) => SniffFabPosition());
+    ChangeNotifierProvider<SniffFabPosition>((Ref ref) => SniffFabPosition());

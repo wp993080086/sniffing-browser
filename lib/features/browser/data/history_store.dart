@@ -39,14 +39,10 @@ class HistoryStore {
   }
 
   Future<void> save(List<HistoryEntry> entries) {
-    return JsonFile.write(
-      file,
-      <String, Object?>{
-        'version': _version,
-        'entries': <Object?>[for (final HistoryEntry e in entries) _encode(e)],
-      },
-      _tag,
-    );
+    return JsonFile.write(file, <String, Object?>{
+      'version': _version,
+      'entries': <Object?>[for (final HistoryEntry e in entries) _encode(e)],
+    }, _tag);
   }
 
   Map<String, Object?> _encode(HistoryEntry entry) {

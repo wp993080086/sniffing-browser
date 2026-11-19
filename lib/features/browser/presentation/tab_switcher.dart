@@ -204,7 +204,9 @@ class _TabCard extends ConsumerWidget {
       child: Container(
         height: height,
         decoration: BoxDecoration(
-          color: active ? scheme.primaryContainer : scheme.surfaceContainerHighest,
+          color: active
+              ? scheme.primaryContainer
+              : scheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(14),
           border: active
               ? Border.all(color: scheme.primary, width: 1.5)

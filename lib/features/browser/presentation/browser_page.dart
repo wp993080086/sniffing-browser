@@ -17,7 +17,9 @@ class BrowserPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final TabManager tabs = ref.watch(tabManagerProvider);
     final List<BrowserTab> live = tabs.liveTabs;
-    final int index = live.indexWhere((BrowserTab tab) => tab.id == tabs.activeId);
+    final int index = live.indexWhere(
+      (BrowserTab tab) => tab.id == tabs.activeId,
+    );
     final BrowserTab active = tabs.activeTab;
 
     // 系统返回手势原来直接退应用：WebView 明明还有历史，页面却被整个关掉。

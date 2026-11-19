@@ -15,8 +15,7 @@ import 'history_store.dart';
 /// 同一个地址反复访问只留一条，时间更新、位置提到最前，和系统浏览器一致。
 /// 用户想看「我今天访问了几次这个站」不是这个列表的职责。
 class HistoryService extends ChangeNotifier {
-  HistoryService({HistoryStore? store, this.maxEntries = 500})
-      : _store = store;
+  HistoryService({HistoryStore? store, this.maxEntries = 500}) : _store = store;
 
   /// 为空表示纯内存模式（测试用），不读写磁盘。
   final HistoryStore? _store;
@@ -33,8 +32,9 @@ class HistoryService extends ChangeNotifier {
 
   List<HistoryEntry> get _sorted {
     final List<HistoryEntry> list = List<HistoryEntry>.of(_entries);
-    list.sort((HistoryEntry a, HistoryEntry b) =>
-        b.visitedAt.compareTo(a.visitedAt));
+    list.sort(
+      (HistoryEntry a, HistoryEntry b) => b.visitedAt.compareTo(a.visitedAt),
+    );
     return list;
   }
 
@@ -50,8 +50,9 @@ class HistoryService extends ChangeNotifier {
       merged[entry.url] = entry;
     }
     final List<HistoryEntry> list = merged.values.toList()
-      ..sort((HistoryEntry a, HistoryEntry b) =>
-          b.visitedAt.compareTo(a.visitedAt));
+      ..sort(
+        (HistoryEntry a, HistoryEntry b) => b.visitedAt.compareTo(a.visitedAt),
+      );
 
     _entries
       ..clear()

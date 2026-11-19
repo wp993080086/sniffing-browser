@@ -8,8 +8,9 @@ class M3u8ParseException implements Exception {
   final int? line;
 
   @override
-  String toString() =>
-      line == null ? 'M3u8ParseException: $message' : 'M3u8ParseException(line $line): $message';
+  String toString() => line == null
+      ? 'M3u8ParseException: $message'
+      : 'M3u8ParseException(line $line): $message';
 }
 
 /// m3u8 解析器。

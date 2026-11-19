@@ -19,8 +19,9 @@ class TranscodePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final TranscodeQueue queue = ref.watch(transcodeQueueProvider);
     final List<TranscodeJob> jobs = queue.jobs;
-    final bool hasFinished =
-        jobs.any((TranscodeJob job) => job.status.isFinished);
+    final bool hasFinished = jobs.any(
+      (TranscodeJob job) => job.status.isFinished,
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -151,7 +152,8 @@ class _Menu extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bool running = job.status == TranscodeStatus.running ||
+    final bool running =
+        job.status == TranscodeStatus.running ||
         job.status == TranscodeStatus.pending;
 
     return PopupMenuButton<String>(
@@ -171,17 +173,16 @@ class _Menu extends ConsumerWidget {
         switch (value) {
           case 'open':
             // 先抓 messenger：await 之后 context 可能已经失效。
-            final ScaffoldMessengerState messenger =
-                ScaffoldMessenger.of(context);
+            final ScaffoldMessengerState messenger = ScaffoldMessenger.of(
+              context,
+            );
             final bool ok = await MediaExporter.openFile(
               job.mediaUri ?? job.artifactPath,
             );
             if (!ok) {
               messenger
                 ..hideCurrentSnackBar()
-                ..showSnackBar(const SnackBar(
-                  content: Text('没有找到能打开这个文件的应用'),
-                ));
+                ..showSnackBar(const SnackBar(content: Text('没有找到能打开这个文件的应用')));
             }
           case 'cancel':
             queue.cancel(job.id);

@@ -112,8 +112,11 @@ class ThumbnailCache {
     _remember(item.id, bytes);
     _inFlight.remove(item.id);
     if (bytes != null) {
-      logDebug('Thumb', '缩略图就绪 ${_describe(item)} '
-          '${bytes.length}B ${watch.elapsedMilliseconds}ms');
+      logDebug(
+        'Thumb',
+        '缩略图就绪 ${_describe(item)} '
+            '${bytes.length}B ${watch.elapsedMilliseconds}ms',
+      );
     }
     return bytes;
   }

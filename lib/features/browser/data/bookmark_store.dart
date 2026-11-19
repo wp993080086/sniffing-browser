@@ -35,14 +35,10 @@ class BookmarkStore {
   }
 
   Future<void> save(List<BookmarkEntry> entries) {
-    return JsonFile.write(
-      file,
-      <String, Object?>{
-        'version': _version,
-        'entries': <Object?>[for (final BookmarkEntry e in entries) _encode(e)],
-      },
-      _tag,
-    );
+    return JsonFile.write(file, <String, Object?>{
+      'version': _version,
+      'entries': <Object?>[for (final BookmarkEntry e in entries) _encode(e)],
+    }, _tag);
   }
 
   Map<String, Object?> _encode(BookmarkEntry entry) {

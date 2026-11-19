@@ -48,10 +48,12 @@ class DashPairer {
     if (!isDashSegment(video)) return null;
 
     final List<MediaItem> audios = pool
-        .where((MediaItem item) =>
-            item.id != video.id &&
-            item.type == MediaType.audio &&
-            isDashSegment(item))
+        .where(
+          (MediaItem item) =>
+              item.id != video.id &&
+              item.type == MediaType.audio &&
+              isDashSegment(item),
+        )
         .toList();
     if (audios.isEmpty) return null;
 
@@ -69,10 +71,14 @@ class DashPairer {
     //    有些站点两条文件名叫 `video.m4s` / `audio.m4s`，前缀毫无关系。
     //    加这两个长度为 1 的限制，是为了避免页面上有多个视频时配错。
     final List<MediaItem> videos = pool
-        .where((MediaItem item) =>
-            item.type == MediaType.video && isDashSegment(item))
+        .where(
+          (MediaItem item) =>
+              item.type == MediaType.video && isDashSegment(item),
+        )
         .toList();
-    if (videos.length == 1 && videos.first.id == video.id && audios.length == 1) {
+    if (videos.length == 1 &&
+        videos.first.id == video.id &&
+        audios.length == 1) {
       return audios.first;
     }
 

@@ -59,7 +59,9 @@ void main() {
     expect(engine.dx, lessThan(download.dx));
 
     // 两层加起来不该比原来的 52px 单层高太多。
-    final double headerHeight = tester.getSize(find.byType(BrowserHeader)).height;
+    final double headerHeight = tester
+        .getSize(find.byType(BrowserHeader))
+        .height;
     expect(headerHeight, lessThan(110));
   });
 

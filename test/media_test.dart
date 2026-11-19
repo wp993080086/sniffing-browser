@@ -9,11 +9,26 @@ import 'package:sniffing_browser/features/transcoder/domain/transcode_job.dart';
 void main() {
   group('MediaClassifier', () {
     test('按扩展名识别类型', () {
-      expect(MediaClassifier.classifyUrl('https://a.com/x.jpg'), MediaType.image);
-      expect(MediaClassifier.classifyUrl('https://a.com/x.mp3'), MediaType.audio);
-      expect(MediaClassifier.classifyUrl('https://a.com/x.m3u8'), MediaType.hls);
-      expect(MediaClassifier.classifyUrl('https://a.com/x.mpd'), MediaType.dash);
-      expect(MediaClassifier.classifyUrl('https://a.com/x.mp4'), MediaType.video);
+      expect(
+        MediaClassifier.classifyUrl('https://a.com/x.jpg'),
+        MediaType.image,
+      );
+      expect(
+        MediaClassifier.classifyUrl('https://a.com/x.mp3'),
+        MediaType.audio,
+      );
+      expect(
+        MediaClassifier.classifyUrl('https://a.com/x.m3u8'),
+        MediaType.hls,
+      );
+      expect(
+        MediaClassifier.classifyUrl('https://a.com/x.mpd'),
+        MediaType.dash,
+      );
+      expect(
+        MediaClassifier.classifyUrl('https://a.com/x.mp4'),
+        MediaType.video,
+      );
     });
 
     test('query 参数不干扰扩展名判断', () {
@@ -139,32 +154,47 @@ void main() {
     test('合并后的 mp4 可以抽 MP3，纯视频轨的 mp4 不行', () {
       // 合并产物：mergedAudio == true，是唯一确定带音轨的来源
       expect(
-        TranscodeKind.audioToMp3
-            .appliesTo(MediaType.video, '/x/a.mp4', hasAudio: true),
+        TranscodeKind.audioToMp3.appliesTo(
+          MediaType.video,
+          '/x/a.mp4',
+          hasAudio: true,
+        ),
         isTrue,
       );
       // 配对失败 / 单轨下载：mergedAudio == false，点了必然报「没有音轨」
       expect(
-        TranscodeKind.audioToMp3
-            .appliesTo(MediaType.video, '/x/a.mp4', hasAudio: false),
+        TranscodeKind.audioToMp3.appliesTo(
+          MediaType.video,
+          '/x/a.mp4',
+          hasAudio: false,
+        ),
         isFalse,
       );
       // 普通下载的 mp4 没探测过（null）：放行，绝大多数自带音轨
       expect(
-        TranscodeKind.audioToMp3
-            .appliesTo(MediaType.video, '/x/a.mp4', hasAudio: null),
+        TranscodeKind.audioToMp3.appliesTo(
+          MediaType.video,
+          '/x/a.mp4',
+          hasAudio: null,
+        ),
         isTrue,
       );
       // 原始 .m4s 分片后缀分不出音视频轨，只有确认带音轨才给入口
       expect(
-        TranscodeKind.audioToMp3
-            .appliesTo(MediaType.video, '/x/a.m4s', hasAudio: null),
+        TranscodeKind.audioToMp3.appliesTo(
+          MediaType.video,
+          '/x/a.m4s',
+          hasAudio: null,
+        ),
         isFalse,
       );
       // mp3 本身不该再出现「转为 MP3」
       expect(
-        TranscodeKind.audioToMp3
-            .appliesTo(MediaType.audio, '/x/a.mp3', hasAudio: true),
+        TranscodeKind.audioToMp3.appliesTo(
+          MediaType.audio,
+          '/x/a.mp3',
+          hasAudio: true,
+        ),
         isFalse,
       );
     });

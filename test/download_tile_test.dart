@@ -34,10 +34,12 @@ Future<List<String>> _menuItems(WidgetTester tester, DownloadTask task) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));
   return tester
-      .widgetList<Text>(find.descendant(
-        of: find.byType(PopupMenuItem<String>),
-        matching: find.byType(Text),
-      ))
+      .widgetList<Text>(
+        find.descendant(
+          of: find.byType(PopupMenuItem<String>),
+          matching: find.byType(Text),
+        ),
+      )
       .map((Text t) => t.data ?? '')
       .toList();
 }
@@ -50,7 +52,10 @@ void main() {
   });
 
   testWidgets('还没下完的任务没有「打开」', (WidgetTester tester) async {
-    final List<String> items = await _menuItems(tester, _task(completed: false));
+    final List<String> items = await _menuItems(
+      tester,
+      _task(completed: false),
+    );
 
     expect(items, isNot(contains('打开')));
   });

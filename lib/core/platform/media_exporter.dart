@@ -66,8 +66,9 @@ class ExportResult {
 class MediaExporter {
   const MediaExporter._();
 
-  static const MethodChannel _channel =
-      MethodChannel('sniffing_browser/media_exporter');
+  static const MethodChannel _channel = MethodChannel(
+    'sniffing_browser/media_exporter',
+  );
 
   /// 音频不进相册（两端相册都只认图片和视频），所以单独一个目标。
   static ExportTarget targetFor(MediaType type) {
@@ -110,13 +111,13 @@ class MediaExporter {
     }
 
     try {
-      final Map<Object?, Object?>? result =
-          await _channel.invokeMethod<Map<Object?, Object?>>('exportMedia', <String, Object?>{
-        'path': filePath,
-        'name': displayName ?? p.basename(filePath),
-        'target': target.name,
-        'mimeType': _mimeFor(type, filePath),
-      });
+      final Map<Object?, Object?>? result = await _channel
+          .invokeMethod<Map<Object?, Object?>>('exportMedia', <String, Object?>{
+            'path': filePath,
+            'name': displayName ?? p.basename(filePath),
+            'target': target.name,
+            'mimeType': _mimeFor(type, filePath),
+          });
 
       if (result == null) {
         return const ExportResult(ExportStatus.failed, message: '导出返回空结果');
@@ -173,10 +174,10 @@ class MediaExporter {
     }
 
     try {
-      final bool? ok =
-          await _channel.invokeMethod<bool>('openMedia', <String, Object?>{
-        'uri': target,
-      });
+      final bool? ok = await _channel.invokeMethod<bool>(
+        'openMedia',
+        <String, Object?>{'uri': target},
+      );
       return ok ?? false;
     } on MissingPluginException {
       return false;
@@ -193,10 +194,10 @@ class MediaExporter {
     if (PlatformInfo.isDesktop) return false;
 
     try {
-      final bool? ok =
-          await _channel.invokeMethod<bool>('shareMedia', <String, Object?>{
-        'path': path,
-      });
+      final bool? ok = await _channel.invokeMethod<bool>(
+        'shareMedia',
+        <String, Object?>{'path': path},
+      );
       return ok ?? false;
     } on MissingPluginException {
       return false;
@@ -229,8 +230,13 @@ class MediaExporter {
         return '下载/SniffingBrowser';
       case ExportTarget.gallery:
         return const <String>[
-          '.mp4', '.m4v', '.mov', '.mkv', '.webm', '.3gp',
-        ].contains(ext)
+              '.mp4',
+              '.m4v',
+              '.mov',
+              '.mkv',
+              '.webm',
+              '.3gp',
+            ].contains(ext)
             ? '视频/SniffingBrowser'
             : '相册/SniffingBrowser';
     }

@@ -19,8 +19,9 @@ class WebViewCookies {
     if (PlatformInfo.current != AppPlatform.android) return null;
 
     try {
-      final List<Cookie> cookies =
-          await CookieManager.instance().getCookies(url: WebUri(url));
+      final List<Cookie> cookies = await CookieManager.instance().getCookies(
+        url: WebUri(url),
+      );
       if (cookies.isEmpty) return null;
       return cookies.map((Cookie c) => '${c.name}=${c.value}').join('; ');
     } catch (_) {

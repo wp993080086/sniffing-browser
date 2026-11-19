@@ -45,9 +45,9 @@ class _AddressBarState extends ConsumerState<AddressBar> {
   @override
   Widget build(BuildContext context) {
     final TabManager browser = ref.watch(tabManagerProvider);
-    final bool bookmarked = ref.watch(bookmarkProvider).contains(
-          browser.currentUrl,
-        );
+    final bool bookmarked = ref
+        .watch(bookmarkProvider)
+        .contains(browser.currentUrl);
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     // 页面跳转后同步地址栏，但用户正在输入时不打断。
@@ -139,10 +139,9 @@ class _AddressBarState extends ConsumerState<AddressBar> {
   /// 收藏 / 取消收藏当前页。标题取页面标题，为空时列表会退回域名。
   void _toggleStar() {
     final TabManager browser = ref.read(tabManagerProvider);
-    final bool added = ref.read(bookmarkProvider).toggle(
-          url: browser.currentUrl,
-          title: browser.title,
-        );
+    final bool added = ref
+        .read(bookmarkProvider)
+        .toggle(url: browser.currentUrl, title: browser.title);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(

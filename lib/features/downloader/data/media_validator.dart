@@ -101,7 +101,9 @@ class MediaValidator {
     if (i >= head.length) return MediaPayload.text;
 
     final String start = latin1
-        .decode(head.sublist(i, i + (head.length - i < 64 ? head.length - i : 64)))
+        .decode(
+          head.sublist(i, i + (head.length - i < 64 ? head.length - i : 64)),
+        )
         .toLowerCase();
 
     if (start.startsWith('<!doctype') ||

@@ -99,20 +99,22 @@ void main() {
 
     test('单条记录缺字段只跳过它，其余保留', () async {
       final File file = File('${dir.path}/jobs.json');
-      await file.writeAsString(jsonEncode(<String, Object?>{
-        'version': 1,
-        'jobs': <Object?>[
-          <String, Object?>{'id': 'broken'},
-          <String, Object?>{
-            'id': 'ok',
-            'sourcePath': '/tmp/s.mp4',
-            'outputPath': '/tmp/o.mp3',
-            'kind': 'audioToMp3',
-            'createdAt': '2026-11-12T10:00:00.000',
-            'status': 'completed',
-          },
-        ],
-      }));
+      await file.writeAsString(
+        jsonEncode(<String, Object?>{
+          'version': 1,
+          'jobs': <Object?>[
+            <String, Object?>{'id': 'broken'},
+            <String, Object?>{
+              'id': 'ok',
+              'sourcePath': '/tmp/s.mp4',
+              'outputPath': '/tmp/o.mp3',
+              'kind': 'audioToMp3',
+              'createdAt': '2026-11-12T10:00:00.000',
+              'status': 'completed',
+            },
+          ],
+        }),
+      );
 
       final List<TranscodeJob> loaded = await store().load();
       expect(loaded, hasLength(1));
@@ -133,29 +135,31 @@ void main() {
     test('running 标成中断，pending 继续跑', () async {
       final File file = File('${dir.path}/jobs.json');
       final File produced = File('${dir.path}/produced.mp3');
-      await file.writeAsString(jsonEncode(<String, Object?>{
-        'version': 1,
-        'jobs': <Object?>[
-          <String, Object?>{
-            'id': 'interrupted',
-            'sourcePath': '/tmp/a.mp4',
-            'outputPath': '/tmp/a.mp3',
-            'kind': 'audioToMp3',
-            'createdAt': '2026-11-12T10:00:00.000',
-            'status': 'running',
-            'displayName': 'a.mp4',
-          },
-          <String, Object?>{
-            'id': 'pending',
-            'sourcePath': '/tmp/b.mp4',
-            'outputPath': produced.path,
-            'kind': 'audioToMp3',
-            'createdAt': '2026-11-12T10:01:00.000',
-            'status': 'pending',
-            'displayName': 'b.mp4',
-          },
-        ],
-      }));
+      await file.writeAsString(
+        jsonEncode(<String, Object?>{
+          'version': 1,
+          'jobs': <Object?>[
+            <String, Object?>{
+              'id': 'interrupted',
+              'sourcePath': '/tmp/a.mp4',
+              'outputPath': '/tmp/a.mp3',
+              'kind': 'audioToMp3',
+              'createdAt': '2026-11-12T10:00:00.000',
+              'status': 'running',
+              'displayName': 'a.mp4',
+            },
+            <String, Object?>{
+              'id': 'pending',
+              'sourcePath': '/tmp/b.mp4',
+              'outputPath': produced.path,
+              'kind': 'audioToMp3',
+              'createdAt': '2026-11-12T10:01:00.000',
+              'status': 'pending',
+              'displayName': 'b.mp4',
+            },
+          ],
+        }),
+      );
 
       final _FakeEngine engine = _FakeEngine();
       final TranscodeQueue queue = TranscodeQueue(

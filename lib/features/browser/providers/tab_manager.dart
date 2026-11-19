@@ -228,8 +228,9 @@ class TabManager extends ChangeNotifier {
   void _ensureLive(BrowserTab tab) {
     if (!_live.contains(tab.id)) _live.add(tab.id);
     while (_live.length > maxLive) {
-      final List<String> others =
-          _live.where((String id) => id != tab.id).toList();
+      final List<String> others = _live
+          .where((String id) => id != tab.id)
+          .toList();
       if (others.isEmpty) break;
       others.sort((String a, String b) {
         final DateTime ta = _byId(a)?.lastActive ?? DateTime(0);

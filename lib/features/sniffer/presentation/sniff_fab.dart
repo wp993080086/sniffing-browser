@@ -64,10 +64,14 @@ class SniffFab extends ConsumerWidget {
 
   /// 拖出边界时直接夹住，不留下越界坐标（否则缩回窗口会看到按钮在屏幕外）。
   static Offset clampOffset(Offset raw, Size area) {
-    final double maxX =
-        (area.width - size - minEdge).clamp(minEdge, double.infinity);
-    final double maxY =
-        (area.height - size - minEdge).clamp(minEdge, double.infinity);
+    final double maxX = (area.width - size - minEdge).clamp(
+      minEdge,
+      double.infinity,
+    );
+    final double maxY = (area.height - size - minEdge).clamp(
+      minEdge,
+      double.infinity,
+    );
     return Offset(raw.dx.clamp(minEdge, maxX), raw.dy.clamp(minEdge, maxY));
   }
 }

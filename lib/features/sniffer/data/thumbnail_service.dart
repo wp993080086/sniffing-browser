@@ -24,8 +24,9 @@ import '../domain/media_type.dart';
 class ThumbnailService {
   const ThumbnailService._();
 
-  static const MethodChannel _channel =
-      MethodChannel('sniffing_browser/thumbnailer');
+  static const MethodChannel _channel = MethodChannel(
+    'sniffing_browser/thumbnailer',
+  );
 
   /// 单张原图的读取上限。超过了宁可显示类型图标，也不为一张缩略图
   /// 在手机上啃几 MB 流量。
@@ -41,10 +42,7 @@ class ThumbnailService {
     'accept-encoding',
   };
 
-  static Future<Uint8List?> load(
-    MediaItem item, {
-    int maxWidth = 160,
-  }) async {
+  static Future<Uint8List?> load(MediaItem item, {int maxWidth = 160}) async {
     switch (item.type) {
       case MediaType.image:
         return _image(item, maxWidth);
@@ -66,10 +64,7 @@ class ThumbnailService {
   static final SerialGate _frameGate = SerialGate();
 
   /// 单独暴露视频抽帧，方便按平台排查。
-  static Future<Uint8List?> videoFrame(
-    MediaItem item, {
-    int maxWidth = 160,
-  }) {
+  static Future<Uint8List?> videoFrame(MediaItem item, {int maxWidth = 160}) {
     return _frameGate.run(() => _videoFrameNow(item, maxWidth: maxWidth));
   }
 
@@ -108,8 +103,9 @@ class ThumbnailService {
         }
       });
 
-      final HttpClientResponse response =
-          await request.close().timeout(_fetchTimeout);
+      final HttpClientResponse response = await request.close().timeout(
+        _fetchTimeout,
+      );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         logDebug('Thumb', '图片 ${response.statusCode} ${item.url}');
         return null;
@@ -142,13 +138,16 @@ class ThumbnailService {
 
   /// 解码时降采样，只保留需要的宽度。原图动辄几千像素，直接 decode 会爆内存。
   static Future<Uint8List?> _downscale(Uint8List bytes, int maxWidth) async {
-    final ui.Codec codec =
-        await ui.instantiateImageCodec(bytes, targetWidth: maxWidth);
+    final ui.Codec codec = await ui.instantiateImageCodec(
+      bytes,
+      targetWidth: maxWidth,
+    );
     try {
       final ui.FrameInfo frame = await codec.getNextFrame();
       try {
-        final ByteData? data =
-            await frame.image.toByteData(format: ui.ImageByteFormat.png);
+        final ByteData? data = await frame.image.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
         return data?.buffer.asUint8List();
       } finally {
         frame.image.dispose();
@@ -183,14 +182,20 @@ class ThumbnailService {
 
     final String headerBlock = _ffmpegHeaders(item);
     final List<String> args = <String>[
-      '-v', 'error',
+      '-v',
+      'error',
       '-nostdin',
       if (headerBlock.isNotEmpty) ...<String>['-headers', headerBlock],
-      '-i', item.url,
-      '-frames:v', '1',
-      '-vf', 'scale=$maxWidth:-2',
-      '-f', 'image2pipe',
-      '-vcodec', 'png',
+      '-i',
+      item.url,
+      '-frames:v',
+      '1',
+      '-vf',
+      'scale=$maxWidth:-2',
+      '-f',
+      'image2pipe',
+      '-vcodec',
+      'png',
       'pipe:1',
     ];
 
@@ -230,8 +235,9 @@ class ThumbnailService {
       if (_blockedHeaders.contains(key.toLowerCase())) return;
       result[key] = value;
     });
-    final bool hasReferer =
-        result.keys.any((String k) => k.toLowerCase() == 'referer');
+    final bool hasReferer = result.keys.any(
+      (String k) => k.toLowerCase() == 'referer',
+    );
     if (!hasReferer && item.pageUrl != null) {
       result['Referer'] = item.pageUrl!;
     }

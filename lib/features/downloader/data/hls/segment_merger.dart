@@ -29,13 +29,25 @@ class SegmentMerger {
     final IOSink sink = output.openWrite();
     try {
       if (initSegment != null && await initSegment.exists()) {
-        written += await _appendFile(sink, initSegment, written, totalBytes, onProgress);
+        written += await _appendFile(
+          sink,
+          initSegment,
+          written,
+          totalBytes,
+          onProgress,
+        );
       }
       for (final File segment in segments) {
         if (!await segment.exists()) {
           throw FileSystemException('分片缺失', segment.path);
         }
-        written += await _appendFile(sink, segment, written, totalBytes, onProgress);
+        written += await _appendFile(
+          sink,
+          segment,
+          written,
+          totalBytes,
+          onProgress,
+        );
       }
       await sink.flush();
     } finally {

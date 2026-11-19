@@ -11,12 +11,12 @@ import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
 import 'package:sniffing_browser/features/sniffer/presentation/resource_tile.dart';
 
 MediaItem _item(String id, {MediaType type = MediaType.image}) => MediaItem(
-      id: id,
-      url: 'https://example.com/$id.jpg',
-      type: type,
-      firstSeenAt: DateTime(2026, 1, 1),
-      fileName: '$id.jpg',
-    );
+  id: id,
+  url: 'https://example.com/$id.jpg',
+  type: type,
+  firstSeenAt: DateTime(2026, 1, 1),
+  fileName: '$id.jpg',
+);
 
 /// 画一张 2×2 的图并编码成 PNG，当作缩略图的真实字节。
 Future<Uint8List> _png() async {
@@ -34,9 +34,7 @@ Future<Uint8List> _png() async {
 Future<void> _pump(WidgetTester tester, ThumbnailCache cache, MediaItem item) {
   return tester.pumpWidget(
     ProviderScope(
-      overrides: <Override>[
-        thumbnailCacheProvider.overrideWithValue(cache),
-      ],
+      overrides: <Override>[thumbnailCacheProvider.overrideWithValue(cache)],
       child: MaterialApp(
         home: Scaffold(body: ResourceTile(item: item)),
       ),

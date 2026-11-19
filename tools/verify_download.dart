@@ -42,7 +42,9 @@ void _fail(String name, String reason) {
 
 Future<void> main(List<String> args) async {
   final String mode = args.isEmpty ? 'all' : args.first;
-  final Directory work = Directory('${Directory.systemTemp.path}/sniffing-verify');
+  final Directory work = Directory(
+    '${Directory.systemTemp.path}/sniffing-verify',
+  );
   if (await work.exists()) await work.delete(recursive: true);
   await work.create(recursive: true);
 
@@ -98,7 +100,10 @@ Future<void> _testSingleFile(Directory work) async {
     if (head.isNotEmpty && head[0] == 0x47) {
       _ok('TS 同步字节', '0x47 正确');
     } else {
-      _fail('TS 同步字节', '首字节是 0x${head.isEmpty ? "空" : head[0].toRadixString(16)}');
+      _fail(
+        'TS 同步字节',
+        '首字节是 0x${head.isEmpty ? "空" : head[0].toRadixString(16)}',
+      );
     }
 
     if (await File('${target.path}.part').exists()) {
@@ -140,7 +145,7 @@ Future<void> _testHls(Directory work, String url) async {
       _ok(
         '合并输出',
         '${(size / 1024).toStringAsFixed(0)} KB, 容器 ${result.container}, '
-        '${result.isFmp4 ? "fMP4" : "TS"}',
+            '${result.isFmp4 ? "fMP4" : "TS"}',
       );
     }
 
@@ -157,23 +162,31 @@ Future<void> _testHls(Directory work, String url) async {
     }
 
     if (progress.length > 1 && progress.last >= 1.0) {
-      _ok('进度递增', '${progress.length} 次回调, 末值 ${progress.last.toStringAsFixed(2)}');
+      _ok(
+        '进度递增',
+        '${progress.length} 次回调, 末值 ${progress.last.toStringAsFixed(2)}',
+      );
     } else {
-      _fail('进度递增', '回调 ${progress.length} 次, 末值 ${progress.isEmpty ? "-" : progress.last}');
+      _fail(
+        '进度递增',
+        '回调 ${progress.length} 次, 末值 ${progress.isEmpty ? "-" : progress.last}',
+      );
     }
 
     // 合并结果的开头必须是 TS 包起点；结尾要检查最后一个 188 字节包的起始字节，
     // 而不是文件的最后一个字节——TS 包内任意位置都可能不是 0x47。
     final Uint8List head = await _readAt(output, 0, 1);
     final Uint8List lastPacket = await _readAt(output, size - 188, 1);
-    if (head.isNotEmpty && head[0] == 0x47 &&
-        lastPacket.isNotEmpty && lastPacket[0] == 0x47) {
+    if (head.isNotEmpty &&
+        head[0] == 0x47 &&
+        lastPacket.isNotEmpty &&
+        lastPacket[0] == 0x47) {
       _ok('首尾对齐', '首包和末包都从 0x47 开始');
     } else {
       _fail(
         '首尾对齐',
         '首 0x${head.isEmpty ? "-" : head[0].toRadixString(16)} '
-        '末包 0x${lastPacket.isEmpty ? "-" : lastPacket[0].toRadixString(16)}',
+            '末包 0x${lastPacket.isEmpty ? "-" : lastPacket[0].toRadixString(16)}',
       );
     }
   } catch (e) {
@@ -220,7 +233,10 @@ Future<void> _testAes(Directory work, String url) async {
     if (actual.isNotEmpty && actual[0] == 0x47) {
       _ok('解密后 TS 头', '0x47，说明密钥和 IV 都正确');
     } else {
-      _fail('解密后 TS 头', '首字节 0x${actual.isEmpty ? "-" : actual[0].toRadixString(16)}，解密结果不是 TS');
+      _fail(
+        '解密后 TS 头',
+        '首字节 0x${actual.isEmpty ? "-" : actual[0].toRadixString(16)}，解密结果不是 TS',
+      );
     }
   } catch (e) {
     _fail('AES-128 下载', '$e');
@@ -299,7 +315,9 @@ Future<Uint8List> _readAt(File file, int offset, int length) async {
 
 /// 提供三种 playlist：明文、加密、以及本地密钥和分片。
 Future<HttpServer> _startServer() async {
-  final Uint8List key = Uint8List.fromList(List<int>.generate(16, (int i) => i + 1));
+  final Uint8List key = Uint8List.fromList(
+    List<int>.generate(16, (int i) => i + 1),
+  );
   final List<Uint8List> plains = await _plainSegments();
 
   // 媒体序列号从 5 开始，三个分片分别是 5 / 6 / 7
@@ -309,7 +327,10 @@ Future<HttpServer> _startServer() async {
       _encrypt(plains[i], key, _ivFromSequence(mediaSequence + i)),
   ];
 
-  final HttpServer server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  final HttpServer server = await HttpServer.bind(
+    InternetAddress.loopbackIPv4,
+    0,
+  );
   final String local = 'http://127.0.0.1:${server.port}';
 
   server.listen((HttpRequest request) async {

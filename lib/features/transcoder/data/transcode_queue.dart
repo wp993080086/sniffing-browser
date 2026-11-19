@@ -16,11 +16,12 @@ import 'transcode_engine.dart';
 import 'transcode_store.dart';
 
 /// 把转换产物写进系统媒体库。默认走 [MediaExporter]，测试可替换。
-typedef LibraryExporter = Future<ExportResult> Function({
-  required String filePath,
-  required MediaType type,
-  required String displayName,
-});
+typedef LibraryExporter =
+    Future<ExportResult> Function({
+      required String filePath,
+      required MediaType type,
+      required String displayName,
+    });
 
 /// 转换队列。
 ///
@@ -32,13 +33,13 @@ class TranscodeQueue extends ChangeNotifier {
     LibraryExporter? libraryExporter,
     bool? autoExportToLibrary,
     TranscodeStore? store,
-  })  : _engine = engine ?? _defaultEngine(),
-        _libraryExporter = libraryExporter ?? _defaultExporter,
-        _store = store,
-        // 桌面产物本来就落在用户下载目录，不需要再入库；
-        // 移动端私有目录用户进不去，必须复制进媒体库才算「找到得到」。
-        _autoExportToLibrary = autoExportToLibrary ??
-            (PlatformInfo.current == AppPlatform.android);
+  }) : _engine = engine ?? _defaultEngine(),
+       _libraryExporter = libraryExporter ?? _defaultExporter,
+       _store = store,
+       // 桌面产物本来就落在用户下载目录，不需要再入库；
+       // 移动端私有目录用户进不去，必须复制进媒体库才算「找到得到」。
+       _autoExportToLibrary =
+           autoExportToLibrary ?? (PlatformInfo.current == AppPlatform.android);
 
   static Future<ExportResult> _defaultExporter({
     required String filePath,
@@ -162,7 +163,8 @@ class TranscodeQueue extends ChangeNotifier {
 
     final TranscodeJob job = TranscodeJob(
       id: HashUtil.md5Short(
-          '$sourcePath#${kind.name}#${DateTime.now().microsecondsSinceEpoch}'),
+        '$sourcePath#${kind.name}#${DateTime.now().microsecondsSinceEpoch}',
+      ),
       sourcePath: sourcePath,
       outputPath: target.path,
       kind: kind,
@@ -261,9 +263,7 @@ class TranscodeQueue extends ChangeNotifier {
     try {
       if (!await availability()) {
         throw UnsupportedError(
-          PlatformInfo.isDesktop
-              ? '没有找到 ffmpeg，请安装后重试'
-              : '当前平台尚未接入 FFmpeg',
+          PlatformInfo.isDesktop ? '没有找到 ffmpeg，请安装后重试' : '当前平台尚未接入 FFmpeg',
         );
       }
       final Directory outDir = Directory(p.dirname(job.outputPath));

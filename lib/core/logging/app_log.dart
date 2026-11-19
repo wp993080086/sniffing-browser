@@ -34,7 +34,8 @@ class LogEntry {
   final String message;
 
   String get formatted {
-    final String t = '${time.hour.toString().padLeft(2, '0')}:'
+    final String t =
+        '${time.hour.toString().padLeft(2, '0')}:'
         '${time.minute.toString().padLeft(2, '0')}:'
         '${time.second.toString().padLeft(2, '0')}.'
         '${time.millisecond.toString().padLeft(3, '0')}';
@@ -42,7 +43,8 @@ class LogEntry {
   }
 
   String get fileLine {
-    final String d = '${time.year}-${time.month.toString().padLeft(2, '0')}-'
+    final String d =
+        '${time.year}-${time.month.toString().padLeft(2, '0')}-'
         '${time.day.toString().padLeft(2, '0')}';
     return '$d $formatted';
   }
@@ -226,7 +228,9 @@ class AppLog extends ChangeNotifier {
   String diagnosticsHeader() {
     final StringBuffer sb = StringBuffer()
       ..writeln('=== 环境 ===')
-      ..writeln('平台: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}')
+      ..writeln(
+        '平台: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+      )
       ..writeln('Dart: ${Platform.version}')
       ..writeln('日志文件: ${_file?.path ?? "不可用"}')
       ..writeln()
@@ -249,10 +253,12 @@ class AppLog extends ChangeNotifier {
 }
 
 /// 全局便捷入口。`AppLog.instance.info(...)` 太长，业务里到处写。
-void logDebug(String tag, String message) => AppLog.instance.debug(tag, message);
+void logDebug(String tag, String message) =>
+    AppLog.instance.debug(tag, message);
 
 void logInfo(String tag, String message) => AppLog.instance.info(tag, message);
 
 void logWarn(String tag, String message) => AppLog.instance.warn(tag, message);
 
-void logError(String tag, String message) => AppLog.instance.error(tag, message);
+void logError(String tag, String message) =>
+    AppLog.instance.error(tag, message);

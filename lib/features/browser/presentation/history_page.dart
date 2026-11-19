@@ -17,8 +17,9 @@ class HistoryPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final HistoryService history = ref.watch(historyProvider);
     final List<HistoryEntry> entries = List<HistoryEntry>.of(history.entries)
-      ..sort((HistoryEntry a, HistoryEntry b) =>
-          b.visitedAt.compareTo(a.visitedAt));
+      ..sort(
+        (HistoryEntry a, HistoryEntry b) => b.visitedAt.compareTo(a.visitedAt),
+      );
 
     return Scaffold(
       appBar: AppBar(

@@ -20,7 +20,10 @@ void main() {
     test('不同注册域视为跨站', () {
       // 这就是 popunder 的形态：正片页 → 广告落地页。
       expect(
-        isSameSite('https://wheelroot.com/api/v1/direct/x', 'https://missav.live/cn/1'),
+        isSameSite(
+          'https://wheelroot.com/api/v1/direct/x',
+          'https://missav.live/cn/1',
+        ),
         isFalse,
       );
     });

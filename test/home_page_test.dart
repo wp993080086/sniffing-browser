@@ -12,12 +12,14 @@ import 'package:sniffing_browser/features/browser/presentation/home_page.dart';
 ///
 /// 默认实现会去读写 `StoragePaths.root`，测试环境没初始化过路径，
 /// 一旦触发防抖落盘就会抛 StateError。
-Widget _wrap(Widget child, {HistoryService? history, BookmarkService? bookmarks}) {
+Widget _wrap(
+  Widget child, {
+  HistoryService? history,
+  BookmarkService? bookmarks,
+}) {
   return ProviderScope(
     overrides: <Override>[
-      historyProvider.overrideWith(
-        (Ref ref) => history ?? HistoryService(),
-      ),
+      historyProvider.overrideWith((Ref ref) => history ?? HistoryService()),
       bookmarkProvider.overrideWith(
         (Ref ref) => bookmarks ?? BookmarkService(),
       ),
@@ -28,9 +30,7 @@ Widget _wrap(Widget child, {HistoryService? history, BookmarkService? bookmarks}
 
 void main() {
   testWidgets('首页输入框下方有历史和收藏入口', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      _wrap(const Scaffold(body: HomePage())),
-    );
+    await tester.pumpWidget(_wrap(const Scaffold(body: HomePage())));
 
     expect(find.text('历史记录'), findsOneWidget);
     expect(find.text('收藏夹'), findsOneWidget);
@@ -38,9 +38,7 @@ void main() {
   });
 
   testWidgets('点「历史记录」进入历史页', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      _wrap(const Scaffold(body: HomePage())),
-    );
+    await tester.pumpWidget(_wrap(const Scaffold(body: HomePage())));
 
     await tester.tap(find.text('历史记录'));
     await tester.pumpAndSettle();
@@ -49,9 +47,7 @@ void main() {
   });
 
   testWidgets('点「收藏夹」进入收藏页', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      _wrap(const Scaffold(body: HomePage())),
-    );
+    await tester.pumpWidget(_wrap(const Scaffold(body: HomePage())));
 
     await tester.tap(find.text('收藏夹'));
     await tester.pumpAndSettle();
@@ -64,9 +60,7 @@ void main() {
     history.record(url: 'https://a.com/x', title: '一个页面');
     history.record(url: 'https://b.com/y', title: '另一个页面');
 
-    await tester.pumpWidget(
-      _wrap(const HistoryPage(), history: history),
-    );
+    await tester.pumpWidget(_wrap(const HistoryPage(), history: history));
 
     expect(find.text('今天'), findsOneWidget);
     expect(find.text('另一个页面'), findsOneWidget);
@@ -74,9 +68,7 @@ void main() {
   });
 
   testWidgets('收藏页空态给出收藏方式', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      _wrap(const BookmarkPage()),
-    );
+    await tester.pumpWidget(_wrap(const BookmarkPage()));
 
     expect(find.text('还没有收藏'), findsOneWidget);
     expect(find.text('点地址栏右侧的星标收藏当前页'), findsOneWidget);

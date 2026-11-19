@@ -16,7 +16,8 @@ import 'package:sniffing_browser/features/downloader/data/media_validator.dart';
 import 'package:sniffing_browser/features/sniffer/domain/media_classifier.dart';
 import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
 
-const String _fakePage = '<!doctype html><html><head><title>首页</title></head>'
+const String _fakePage =
+    '<!doctype html><html><head><title>首页</title></head>'
     '<body><div id="app"></div></body></html>';
 
 /// 一个最小的合法 mp4 头：`ftyp` box + 一堆二进制。足够骗过文本判别。
@@ -46,8 +47,10 @@ void main() {
       final File file = File('${tmp.path}/banner.mp4');
       await file.writeAsString(_fakePage);
 
-      final String? problem =
-          await MediaValidator.validate(file, type: MediaType.video);
+      final String? problem = await MediaValidator.validate(
+        file,
+        type: MediaType.video,
+      );
 
       expect(problem, isNotNull);
       expect(problem, contains('网页'));
@@ -72,8 +75,10 @@ void main() {
       final File file = File('${tmp.path}/empty.mp3');
       await file.create();
 
-      final String? problem =
-          await MediaValidator.validate(file, type: MediaType.audio);
+      final String? problem = await MediaValidator.validate(
+        file,
+        type: MediaType.audio,
+      );
 
       expect(problem, isNotNull);
       expect(problem, contains('空'));
@@ -83,8 +88,10 @@ void main() {
       final File file = File('${tmp.path}/x.mp4');
       await file.writeAsString('{"code":403,"msg":"referer blocked"}');
 
-      final String? problem =
-          await MediaValidator.validate(file, type: MediaType.video);
+      final String? problem = await MediaValidator.validate(
+        file,
+        type: MediaType.video,
+      );
 
       expect(problem, isNotNull);
       expect(problem, contains('JSON'));
@@ -98,8 +105,22 @@ void main() {
       // PNG: \x89PNG\r\n\x1a\n
       final File png = File('${tmp.path}/ok.png');
       await png.writeAsBytes(<int>[
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x89,
+        0x50,
+        0x4E,
+        0x47,
+        0x0D,
+        0x0A,
+        0x1A,
+        0x0A,
+        0x00,
+        0x00,
+        0x00,
+        0x0D,
+        0x49,
+        0x48,
+        0x44,
+        0x52,
       ]);
       expect(await MediaValidator.validate(png, type: MediaType.image), isNull);
     });
@@ -202,8 +223,11 @@ void main() {
       );
 
       expect(await target.exists(), isFalse, reason: '坏文件不该落盘');
-      expect(await File('${target.path}.part').exists(), isFalse,
-          reason: '临时文件也要清掉');
+      expect(
+        await File('${target.path}.part').exists(),
+        isFalse,
+        reason: '临时文件也要清掉',
+      );
     });
 
     test('真正的 mp4 正常保存', () async {

@@ -123,7 +123,10 @@ void main() {
       tabs.createTab(url: 'https://two.example/');
       tabs.createTab(url: 'https://three.example/');
 
-      expect(tabs.liveTabs.any((BrowserTab tab) => tab.id == first.id), isFalse);
+      expect(
+        tabs.liveTabs.any((BrowserTab tab) => tab.id == first.id),
+        isFalse,
+      );
 
       tabs.activateTab(first.id);
 

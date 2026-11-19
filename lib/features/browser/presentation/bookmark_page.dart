@@ -16,10 +16,11 @@ class BookmarkPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final BookmarkService bookmarks = ref.watch(bookmarkProvider);
-    final List<BookmarkEntry> entries = List<BookmarkEntry>.of(
-      bookmarks.entries,
-    )..sort((BookmarkEntry a, BookmarkEntry b) =>
-        b.createdAt.compareTo(a.createdAt));
+    final List<BookmarkEntry> entries =
+        List<BookmarkEntry>.of(bookmarks.entries)..sort(
+          (BookmarkEntry a, BookmarkEntry b) =>
+              b.createdAt.compareTo(a.createdAt),
+        );
 
     return Scaffold(
       appBar: AppBar(

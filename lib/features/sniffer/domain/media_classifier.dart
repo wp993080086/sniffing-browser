@@ -10,17 +10,48 @@ class MediaClassifier {
   const MediaClassifier._();
 
   static const Set<String> _imageExtensions = <String>{
-    'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'heic', 'heif', 'svg',
+    'jpg',
+    'jpeg',
+    'png',
+    'gif',
+    'webp',
+    'bmp',
+    'avif',
+    'heic',
+    'heif',
+    'svg',
   };
 
   static const Set<String> _audioExtensions = <String>{
-    'mp3', 'm4a', 'aac', 'flac', 'wav', 'ogg', 'oga', 'opus', 'wma', 'amr',
-    'ape', 'dsf',
+    'mp3',
+    'm4a',
+    'aac',
+    'flac',
+    'wav',
+    'ogg',
+    'oga',
+    'opus',
+    'wma',
+    'amr',
+    'ape',
+    'dsf',
   };
 
   static const Set<String> _videoExtensions = <String>{
-    'mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'flv', 'wmv', 'mpg', 'mpeg',
-    '3gp', 'rmvb', 'ts', 'm2ts',
+    'mp4',
+    'm4v',
+    'mov',
+    'mkv',
+    'webm',
+    'avi',
+    'flv',
+    'wmv',
+    'mpg',
+    'mpeg',
+    '3gp',
+    'rmvb',
+    'ts',
+    'm2ts',
   };
 
   static const Set<String> _hlsExtensions = <String>{'m3u8', 'm3u'};
@@ -30,10 +61,25 @@ class MediaClassifier {
   /// 明显不是媒体的资源，直接不进列表。
   /// 只做减法：即便漏掉一些，后面的类型白名单也会挡掉，这里主要是省掉无用计算。
   static const Set<String> _ignoredExtensions = <String>{
-    'html', 'htm', 'php', 'asp', 'aspx', 'jsp',
-    'js', 'mjs', 'css', 'map',
-    'json', 'xml', 'txt', 'csv',
-    'woff', 'woff2', 'ttf', 'otf', 'eot',
+    'html',
+    'htm',
+    'php',
+    'asp',
+    'aspx',
+    'jsp',
+    'js',
+    'mjs',
+    'css',
+    'map',
+    'json',
+    'xml',
+    'txt',
+    'csv',
+    'woff',
+    'woff2',
+    'ttf',
+    'otf',
+    'eot',
     'ico',
   };
 

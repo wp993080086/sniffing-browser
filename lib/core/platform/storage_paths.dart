@@ -114,7 +114,9 @@ class StoragePaths {
   /// Windows 不允许 `\ / : * ? " < > |`；Android/鸿蒙不允许 `/` 和 NUL。
   /// 统一按最严的规则处理，省得分平台。
   static String sanitizeFileName(String name) {
-    String result = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_').trim();
+    String result = name
+        .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_')
+        .trim();
     if (result.isEmpty) result = 'unnamed';
     if (result.length > 120) {
       final String ext = p.extension(result);
@@ -124,8 +126,17 @@ class StoragePaths {
     }
     // Windows 保留名
     const List<String> reserved = <String>[
-      'CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4',
-      'LPT1', 'LPT2', 'LPT3',
+      'CON',
+      'PRN',
+      'AUX',
+      'NUL',
+      'COM1',
+      'COM2',
+      'COM3',
+      'COM4',
+      'LPT1',
+      'LPT2',
+      'LPT3',
     ];
     final String bare = p.basenameWithoutExtension(result).toUpperCase();
     if (reserved.contains(bare)) result = '_$result';

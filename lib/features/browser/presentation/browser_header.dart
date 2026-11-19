@@ -122,7 +122,11 @@ class _EngineButton extends ConsumerWidget {
                 color: scheme.onSurfaceVariant,
               ),
             ),
-            Icon(Icons.arrow_drop_down, size: 16, color: scheme.onSurfaceVariant),
+            Icon(
+              Icons.arrow_drop_down,
+              size: 16,
+              color: scheme.onSurfaceVariant,
+            ),
           ],
         ),
       ),
@@ -229,8 +233,9 @@ class _BarButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final Color foreground =
-        highlighted ? scheme.primary : scheme.onSurfaceVariant;
+    final Color foreground = highlighted
+        ? scheme.primary
+        : scheme.onSurfaceVariant;
     final int? badge = count;
     final String? text = label;
 

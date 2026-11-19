@@ -46,11 +46,12 @@ class ResourceTile extends ConsumerWidget {
         onPressed: () {
           // 把整页资源一起传下去：DASH 站点的画面和声音是两条独立的 m4s，
           // 只下视频轨得到的是哑的。队列会自己配对、自己合并。
-          final DownloadTask task = ref.read(downloadQueueProvider).enqueue(
-                item,
-                pool: ref.read(snifferProvider).items,
-              );
-          final String hint = task.pairedTaskId != null ? '（已配对音轨，完成后自动合并）' : '';
+          final DownloadTask task = ref
+              .read(downloadQueueProvider)
+              .enqueue(item, pool: ref.read(snifferProvider).items);
+          final String hint = task.pairedTaskId != null
+              ? '（已配对音轨，完成后自动合并）'
+              : '';
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
@@ -129,9 +130,9 @@ class _ResourceThumbState extends ConsumerState<_ResourceThumb> {
               height: _size,
               fit: BoxFit.cover,
               gaplessPlayback: true,
-              errorBuilder: (BuildContext context, Object error,
-                      StackTrace? stack) =>
-                  _iconBox(scheme),
+              errorBuilder:
+                  (BuildContext context, Object error, StackTrace? stack) =>
+                      _iconBox(scheme),
             ),
           );
         },

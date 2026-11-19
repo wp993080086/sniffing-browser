@@ -53,18 +53,18 @@ MediaItem _item({
 void main() {
   group('DashPairer 配对规则', () {
     MediaItem video(String name) => _item(
-          id: name,
-          url: 'https://cdn.example.com/upgcxcode/$name?sign=abc',
-          type: MediaType.video,
-          fileName: '$name.mp4',
-        );
+      id: name,
+      url: 'https://cdn.example.com/upgcxcode/$name?sign=abc',
+      type: MediaType.video,
+      fileName: '$name.mp4',
+    );
 
     MediaItem audio(String name) => _item(
-          id: name,
-          url: 'https://cdn.example.com/upgcxcode/$name?sign=xyz',
-          type: MediaType.audio,
-          fileName: '$name.m4a',
-        );
+      id: name,
+      url: 'https://cdn.example.com/upgcxcode/$name?sign=xyz',
+      type: MediaType.audio,
+      fileName: '$name.m4a',
+    );
 
     test('B 站命名：同前缀的音视频轨配到一起', () {
       final MediaItem v = video('42977332133-1-30016.m4s');
@@ -199,7 +199,10 @@ void main() {
       expect(queue.visibleTasks.length, 1, reason: '伴随任务不该出现在列表里');
       expect(video.isCompanion, isFalse);
 
-      await _waitFor(() => video.mergedAudio != null, const Duration(seconds: 20));
+      await _waitFor(
+        () => video.mergedAudio != null,
+        const Duration(seconds: 20),
+      );
 
       expect(video.status, DownloadStatus.completed);
       expect(video.mergedAudio, isTrue, reason: '合并没有发生');
@@ -221,7 +224,10 @@ void main() {
       );
 
       final DownloadTask video = queue.enqueue(items.first, pool: items);
-      await _waitFor(() => video.mergedAudio != null, const Duration(seconds: 20));
+      await _waitFor(
+        () => video.mergedAudio != null,
+        const Duration(seconds: 20),
+      );
 
       expect(engine.calls, hasLength(1));
       final _FakeEngineCall call = engine.calls.single;
@@ -257,11 +263,12 @@ void main() {
       expect(video.pairedTaskId, isNull, reason: '没有音频轨可配');
 
       await _waitFor(
-          () => video.status.isFinished, const Duration(seconds: 20));
+        () => video.status.isFinished,
+        const Duration(seconds: 20),
+      );
 
       expect(video.status, DownloadStatus.completed);
-      expect(video.mergedAudio, isFalse,
-          reason: '明确没有音轨，UI 才能把「转为 MP3」挡掉');
+      expect(video.mergedAudio, isFalse, reason: '明确没有音轨，UI 才能把「转为 MP3」挡掉');
       expect(engine.calls, isEmpty, reason: '没有音频轨时不该触发合并');
 
       queue.dispose();
@@ -289,10 +296,16 @@ void main() {
       );
 
       final DownloadTask video = queue.enqueue(v, pool: items);
-      await _waitFor(() => video.mergedAudio != null, const Duration(seconds: 30));
+      await _waitFor(
+        () => video.mergedAudio != null,
+        const Duration(seconds: 30),
+      );
 
-      expect(video.status, DownloadStatus.completed,
-          reason: '音轨失败不该拖累视频: ${video.error}');
+      expect(
+        video.status,
+        DownloadStatus.completed,
+        reason: '音轨失败不该拖累视频: ${video.error}',
+      );
       expect(video.mergedAudio, isFalse);
       expect(engine.calls, isEmpty, reason: '没有音轨时不该尝试合并');
 

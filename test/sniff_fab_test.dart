@@ -19,9 +19,7 @@ Future<ProviderContainer> _pumpFab(WidgetTester tester) async {
     UncontrolledProviderScope(
       container: container,
       child: const MaterialApp(
-        home: Scaffold(
-          body: Stack(children: <Widget>[SniffFab()]),
-        ),
+        home: Scaffold(body: Stack(children: <Widget>[SniffFab()])),
       ),
     ),
   );
@@ -59,9 +57,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: const MaterialApp(
-          home: Scaffold(
-            body: Stack(children: <Widget>[SniffFab()]),
-          ),
+          home: Scaffold(body: Stack(children: <Widget>[SniffFab()])),
         ),
       ),
     );
@@ -79,7 +75,10 @@ void main() {
     expect(rect.right, closeTo(_screen.width - 16, 0.01));
     expect(rect.bottom, closeTo(_screen.height - 16, 0.01));
 
-    await tester.drag(find.byKey(SniffFab.buttonKey), const Offset(-2000, -2000));
+    await tester.drag(
+      find.byKey(SniffFab.buttonKey),
+      const Offset(-2000, -2000),
+    );
     await tester.pump();
 
     final Rect corner = _fabRect(tester);

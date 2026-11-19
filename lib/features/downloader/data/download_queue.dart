@@ -36,10 +36,10 @@ class DownloadQueue extends ChangeNotifier {
     TranscodeQueue? transcoder,
     List<MediaItem> Function()? poolSupplier,
     DownloadStore? store,
-  })  : _downloader = downloader ?? FileDownloader(),
-        _transcoder = transcoder,
-        _poolSupplier = poolSupplier,
-        _store = store {
+  }) : _downloader = downloader ?? FileDownloader(),
+       _transcoder = transcoder,
+       _poolSupplier = poolSupplier,
+       _store = store {
     // HLS 缺省复用同一个 downloader：Cookie / 超时 / 重试策略必须和单文件
     // 一致，否则会出现「playlist 拿得到、分片 403」这种难查的差异。
     _hls = hlsDownloader ?? HlsDownloader(downloader: _downloader);
@@ -81,8 +81,11 @@ class DownloadQueue extends ChangeNotifier {
       _tasks.where((DownloadTask t) => !t.isCompanion).toList();
 
   int get activeCount => _tasks
-      .where((DownloadTask t) =>
-          t.status == DownloadStatus.running || t.status == DownloadStatus.pending)
+      .where(
+        (DownloadTask t) =>
+            t.status == DownloadStatus.running ||
+            t.status == DownloadStatus.pending,
+      )
       .length;
 
   bool get hasRunning => _runningCount > 0;
@@ -162,9 +165,14 @@ class DownloadQueue extends ChangeNotifier {
     return task;
   }
 
-  DownloadTask _createTask(MediaItem item, {Map<String, String>? extraHeaders}) {
-    final Map<String, String> headers =
-        <String, String>{...item.requestHeaders, ...?extraHeaders};
+  DownloadTask _createTask(
+    MediaItem item, {
+    Map<String, String>? extraHeaders,
+  }) {
+    final Map<String, String> headers = <String, String>{
+      ...item.requestHeaders,
+      ...?extraHeaders,
+    };
     if (item.pageUrl != null &&
         !headers.keys.any((String k) => k.toLowerCase() == 'referer')) {
       headers['Referer'] = item.pageUrl!;
@@ -175,7 +183,8 @@ class DownloadQueue extends ChangeNotifier {
 
     return DownloadTask(
       id: HashUtil.md5Short(
-          '${item.id}_${DateTime.now().microsecondsSinceEpoch}'),
+        '${item.id}_${DateTime.now().microsecondsSinceEpoch}',
+      ),
       mediaId: item.id,
       url: item.url,
       type: item.type,
@@ -204,7 +213,10 @@ class DownloadQueue extends ChangeNotifier {
       return;
     }
 
-    final DownloadTask companion = _createTask(audio, extraHeaders: extraHeaders);
+    final DownloadTask companion = _createTask(
+      audio,
+      extraHeaders: extraHeaders,
+    );
     companion.isCompanion = true;
     companion.pairedTaskId = video.id;
     video.pairedTaskId = companion.id;
@@ -401,10 +413,7 @@ class DownloadQueue extends ChangeNotifier {
       // 这条是排查「为什么我下的视频没声音」的关键线索：
       // 要么页面里本来就只有一条视频轨（站点把音轨内嵌了），
       // 要么嗅探侧没认出音频轨（移动端拿不到 MIME 时会把 m4s 都当成视频）。
-      logInfo(
-        'Download',
-        'DASH 视频轨没找到配对的音频轨，将按单轨下载（无声）: ${task.fileName}',
-      );
+      logInfo('Download', 'DASH 视频轨没找到配对的音频轨，将按单轨下载（无声）: ${task.fileName}');
       // 记下「确实没有音轨」，下载列表就不会对这个文件提供「转为 MP3」
       // —— 那条路径必然因为找不到音频流而失败。
       task.mergedAudio = false;
@@ -459,8 +468,9 @@ class DownloadQueue extends ChangeNotifier {
 
     // 输出先落到临时目录：合并完直接覆盖回视频轨路径，下载任务持有的路径
     // 不用改，导出和后续转 MP3 都还能直接用。
-    final File out =
-        File(p.join(StoragePaths.temp.path, '${video.id}.merge.mp4'));
+    final File out = File(
+      p.join(StoragePaths.temp.path, '${video.id}.merge.mp4'),
+    );
     logInfo('Download', '音视频都已就绪，开始合并: ${video.fileName}');
 
     transcoder.enqueue(
@@ -544,7 +554,9 @@ class DownloadQueue extends ChangeNotifier {
   Future<void> _runHls(DownloadTask task, CancelToken token) async {
     final Directory workDir = StoragePaths.tempDirFor(task.id);
     // 输出必须放在 workDir 之外：HlsDownloader 成功后会删掉整个 workDir。
-    final File rawOutput = File(p.join(StoragePaths.temp.path, '${task.id}.out'));
+    final File rawOutput = File(
+      p.join(StoragePaths.temp.path, '${task.id}.out'),
+    );
 
     final HlsDownloadResult result = await _hls.download(
       playlistUrl: task.url,
@@ -558,7 +570,9 @@ class DownloadQueue extends ChangeNotifier {
     );
 
     final String baseName = p.basenameWithoutExtension(task.fileName);
-    final File target = StoragePaths.uniqueFile('$baseName.${result.container}');
+    final File target = StoragePaths.uniqueFile(
+      '$baseName.${result.container}',
+    );
     if (await target.exists()) {
       await target.delete();
     }
@@ -570,8 +584,9 @@ class DownloadQueue extends ChangeNotifier {
 
   String _fallbackFileName(String url, MediaType type) {
     final Uri? uri = Uri.tryParse(url);
-    final String guessed =
-        (uri != null && uri.pathSegments.isNotEmpty) ? uri.pathSegments.last : '';
+    final String guessed = (uri != null && uri.pathSegments.isNotEmpty)
+        ? uri.pathSegments.last
+        : '';
     if (guessed.isNotEmpty && guessed.length <= 80) {
       return Uri.decodeComponent(guessed);
     }

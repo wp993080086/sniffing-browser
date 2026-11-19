@@ -83,8 +83,9 @@ abstract class TranscodeEngine {
 /// 所以这里的 await 天然等于「等这一路转码跑完」，队列不需要额外同步。
 /// 进度则由原生通过同一个 channel 反向调用 `onProgress` 推过来。
 class NativeTranscodeEngine extends TranscodeEngine {
-  static const MethodChannel _channel =
-      MethodChannel('sniffing_browser/transcoder');
+  static const MethodChannel _channel = MethodChannel(
+    'sniffing_browser/transcoder',
+  );
 
   /// 当前正在跑的那一路的进度回调。队列严格串行，同一时刻只会有一个。
   static void Function(double)? _progressSink;
@@ -137,16 +138,16 @@ class NativeTranscodeEngine extends TranscodeEngine {
     _ensureHandler();
     _progressSink = onProgress;
     try {
-      final Map<Object?, Object?>? reply =
-          await _channel.invokeMethod<Map<Object?, Object?>>(
-        'startTranscode',
-        <String, Object?>{
-          'input': inputPath,
-          'secondaryInput': secondaryInputPath,
-          'output': outputPath,
-          'kind': kind.name,
-        },
-      );
+      final Map<Object?, Object?>? reply = await _channel
+          .invokeMethod<Map<Object?, Object?>>(
+            'startTranscode',
+            <String, Object?>{
+              'input': inputPath,
+              'secondaryInput': secondaryInputPath,
+              'output': outputPath,
+              'kind': kind.name,
+            },
+          );
 
       final String status = reply?['status'] as String? ?? 'failed';
       final String? message = reply?['message'] as String?;
@@ -157,9 +158,7 @@ class NativeTranscodeEngine extends TranscodeEngine {
         case 'canceled':
           throw const TranscodeCancelled();
         case 'unsupported':
-          throw TranscodeUnsupportedSource(
-            message ?? '这个文件里没有音轨，无法提取 MP3',
-          );
+          throw TranscodeUnsupportedSource(message ?? '这个文件里没有音轨，无法提取 MP3');
         default:
           throw StateError(message ?? '原生转换失败');
       }

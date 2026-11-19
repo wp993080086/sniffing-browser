@@ -62,13 +62,18 @@ class SystemFfmpegEngine extends TranscodeEngine {
 
     // 2. 应用可执行文件同目录及其 bin/ 子目录
     final String exeDir = p.dirname(Platform.resolvedExecutable);
-    for (final String relative in <String>[exe, p.join('ffmpeg', 'bin', exe), p.join('bin', exe)]) {
+    for (final String relative in <String>[
+      exe,
+      p.join('ffmpeg', 'bin', exe),
+      p.join('bin', exe),
+    ]) {
       final File candidate = File(p.join(exeDir, relative));
       if (await candidate.exists()) return candidate.path;
     }
 
     // 3. 用户级安装目录（本机开发时装在这里，不进系统 PATH）
-    final String? home = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
+    final String? home =
+        Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
     if (home != null && home.isNotEmpty) {
       for (final String relative in <String>[
         p.join('.devtools', 'ffmpeg', 'bin', exe),
@@ -110,9 +115,12 @@ class SystemFfmpegEngine extends TranscodeEngine {
     if (probe == null) return null;
     try {
       final ProcessResult result = await Process.run(probe, <String>[
-        '-v', 'error',
-        '-show_entries', 'format=duration',
-        '-of', 'default=noprint_wrappers=1:nokey=1',
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
         path,
       ]);
       if (result.exitCode != 0) return null;
@@ -142,7 +150,7 @@ class SystemFfmpegEngine extends TranscodeEngine {
     logWarn(
       'FFmpeg',
       '音视频时长相差 ${ratio * 100 ~/ 1}%（视频 ${v.inSeconds}s / 音频 ${a.inSeconds}s），'
-      '合并后结尾可能有一段对不齐；音轨很可能是没下完整',
+          '合并后结尾可能有一段对不齐；音轨很可能是没下完整',
     );
   }
 
@@ -198,11 +206,18 @@ class SystemFfmpegEngine extends TranscodeEngine {
       await _execute(
         ffmpeg: ffmpeg,
         args: <String>[
-          '-y', '-hide_banner',
-          '-i', inputPath,
-          '-c:v', 'copy',
-          '-c:a', 'aac', '-b:a', '192k',
-          '-movflags', '+faststart',
+          '-y',
+          '-hide_banner',
+          '-i',
+          inputPath,
+          '-c:v',
+          'copy',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '192k',
+          '-movflags',
+          '+faststart',
           outputPath,
         ],
         outputPath: outputPath,
@@ -228,10 +243,14 @@ class SystemFfmpegEngine extends TranscodeEngine {
     switch (kind) {
       case TranscodeKind.tsToMp4:
         return <String>[
-          '-y', '-hide_banner',
-          '-i', input,
-          '-c', 'copy',
-          '-movflags', '+faststart',
+          '-y',
+          '-hide_banner',
+          '-i',
+          input,
+          '-c',
+          'copy',
+          '-movflags',
+          '+faststart',
           output,
         ];
       case TranscodeKind.audioToMp3:
@@ -282,28 +301,31 @@ class SystemFfmpegEngine extends TranscodeEngine {
     final StringBuffer stderrTail = StringBuffer();
     final Completer<void> stderrDone = Completer<void>();
 
-    process.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen(
-      (String chunk) {
-        stderrTail.write(chunk);
-        if (stderrTail.length > 8000) {
-          final String s = stderrTail.toString();
-          stderrTail
-            ..clear()
-            ..write(s.substring(s.length - 4000));
-        }
-        final Duration? current = _parseProgressTime(chunk);
-        if (current != null && total != null && total.inMilliseconds > 0) {
-          final double ratio = current.inMilliseconds / total.inMilliseconds;
-          onProgress(ratio.clamp(0.0, 0.999));
-        }
-      },
-      onDone: () {
-        if (!stderrDone.isCompleted) stderrDone.complete();
-      },
-      onError: (Object _) {
-        if (!stderrDone.isCompleted) stderrDone.complete();
-      },
-    );
+    process.stderr
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .listen(
+          (String chunk) {
+            stderrTail.write(chunk);
+            if (stderrTail.length > 8000) {
+              final String s = stderrTail.toString();
+              stderrTail
+                ..clear()
+                ..write(s.substring(s.length - 4000));
+            }
+            final Duration? current = _parseProgressTime(chunk);
+            if (current != null && total != null && total.inMilliseconds > 0) {
+              final double ratio =
+                  current.inMilliseconds / total.inMilliseconds;
+              onProgress(ratio.clamp(0.0, 0.999));
+            }
+          },
+          onDone: () {
+            if (!stderrDone.isCompleted) stderrDone.complete();
+          },
+          onError: (Object _) {
+            if (!stderrDone.isCompleted) stderrDone.complete();
+          },
+        );
 
     // stdout 不读会撑满管道导致 ffmpeg 阻塞，必须消费掉。
     process.stdout.drain<void>();
@@ -332,7 +354,9 @@ class SystemFfmpegEngine extends TranscodeEngine {
   /// 用 `\r` 原地刷新，所以一个 chunk 里可能有多行，取最后一个。
   static Duration? _parseProgressTime(String chunk) {
     Duration? latest;
-    for (final RegExpMatch m in RegExp(r'time=(\d+):(\d+):(\d+\.?\d*)').allMatches(chunk)) {
+    for (final RegExpMatch m in RegExp(
+      r'time=(\d+):(\d+):(\d+\.?\d*)',
+    ).allMatches(chunk)) {
       final int h = int.parse(m.group(1)!);
       final int min = int.parse(m.group(2)!);
       final double sec = double.parse(m.group(3)!);
@@ -410,4 +434,3 @@ bool _looksLikeNoAudioStream(String text) {
       lower.contains('no audio stream') ||
       lower.contains('could not find codec parameters for stream 0 (audio');
 }
-

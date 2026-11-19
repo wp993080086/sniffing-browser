@@ -38,13 +38,15 @@ final Provider<SnifferService> snifferProvider = Provider<SnifferService>(
 /// 不落盘 —— 嗅探结果本身不持久化，重启后列表就空了。
 final Provider<ThumbnailCache> thumbnailCacheProvider =
     Provider<ThumbnailCache>(
-        (Ref ref) => ThumbnailCache(loader: ThumbnailService.load));
+      (Ref ref) => ThumbnailCache(loader: ThumbnailService.load),
+    );
 
 /// 转换队列带持久化：任务记录写在应用私有根目录，重启后还能看到历史，
 /// 未完成的（pending）会接着跑。测试里直接 `TranscodeQueue()` 即不落盘。
 final ChangeNotifierProvider<TranscodeQueue> transcodeQueueProvider =
     ChangeNotifierProvider<TranscodeQueue>(
-        (Ref ref) => TranscodeQueue(store: TranscodeStore()));
+      (Ref ref) => TranscodeQueue(store: TranscodeStore()),
+    );
 
 /// 下载队列依赖转码队列：DASH 分片的音视频要合并。
 ///
@@ -57,12 +59,14 @@ final ChangeNotifierProvider<TranscodeQueue> transcodeQueueProvider =
 /// 注入 [WebViewCookies.forUrl]：嗅探拿到的头里没有 Cookie（Android 的
 /// `WebResourceRequest` 不返回），下载时按每个请求 URL 现取，见 5.6。
 final ChangeNotifierProvider<DownloadQueue> downloadQueueProvider =
-    ChangeNotifierProvider<DownloadQueue>((Ref ref) => DownloadQueue(
-          downloader: FileDownloader(cookieLoader: WebViewCookies.forUrl),
-          transcoder: ref.watch(transcodeQueueProvider),
-          poolSupplier: () => ref.read(snifferProvider).items,
-          store: DownloadStore(),
-        ));
+    ChangeNotifierProvider<DownloadQueue>(
+      (Ref ref) => DownloadQueue(
+        downloader: FileDownloader(cookieLoader: WebViewCookies.forUrl),
+        transcoder: ref.watch(transcodeQueueProvider),
+        poolSupplier: () => ref.read(snifferProvider).items,
+        store: DownloadStore(),
+      ),
+    );
 
 /// 浏览历史。全局一份——历史本来就跨页签，切页签不该换一份记录。
 ///
@@ -70,9 +74,11 @@ final ChangeNotifierProvider<DownloadQueue> downloadQueueProvider =
 /// 测试里直接 `HistoryService()` 即纯内存。
 final ChangeNotifierProvider<HistoryService> historyProvider =
     ChangeNotifierProvider<HistoryService>(
-        (Ref ref) => HistoryService(store: HistoryStore()));
+      (Ref ref) => HistoryService(store: HistoryStore()),
+    );
 
 /// 收藏夹。独立文件，清历史不影响收藏。
 final ChangeNotifierProvider<BookmarkService> bookmarkProvider =
     ChangeNotifierProvider<BookmarkService>(
-        (Ref ref) => BookmarkService(store: BookmarkStore()));
+      (Ref ref) => BookmarkService(store: BookmarkStore()),
+    );

@@ -24,8 +24,8 @@ typedef CookieLoader = Future<String?> Function(String url);
 /// 这对“下载完成后自动导出到相册”尤其重要。
 class FileDownloader {
   FileDownloader({Dio? dio, CookieLoader? cookieLoader})
-      : _dio = dio ?? createDio(),
-        _cookieLoader = cookieLoader;
+    : _dio = dio ?? createDio(),
+      _cookieLoader = cookieLoader;
 
   final Dio _dio;
 
@@ -67,8 +67,9 @@ class FileDownloader {
     }
 
     // Cookie 只取一次，重试沿用同一份：每次重试都过一遍 WebView 通道没有收益。
-    final Map<String, String> requestHeaders =
-        _sanitizeHeaders(await _withCookies(url, headers));
+    final Map<String, String> requestHeaders = _sanitizeHeaders(
+      await _withCookies(url, headers),
+    );
 
     Object? lastError;
     for (int attempt = 0; attempt <= retries; attempt++) {
@@ -130,8 +131,9 @@ class FileDownloader {
     CancelToken? cancelToken,
     int retries = 2,
   }) async {
-    final Map<String, String> requestHeaders =
-        _sanitizeHeaders(await _withCookies(url, headers));
+    final Map<String, String> requestHeaders = _sanitizeHeaders(
+      await _withCookies(url, headers),
+    );
 
     Object? lastError;
     for (int attempt = 0; attempt <= retries; attempt++) {
@@ -153,7 +155,11 @@ class FileDownloader {
         await Future<void>.delayed(Duration(milliseconds: 300 * (attempt + 1)));
       }
     }
-    throw DownloadException(_describeError(lastError), url: url, cause: lastError);
+    throw DownloadException(
+      _describeError(lastError),
+      url: url,
+      cause: lastError,
+    );
   }
 
   Future<String> fetchString({

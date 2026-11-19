@@ -7,11 +7,11 @@ import 'package:sniffing_browser/features/sniffer/domain/media_item.dart';
 import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
 
 MediaItem _item(String id, {MediaType type = MediaType.image}) => MediaItem(
-      id: id,
-      url: 'https://example.com/$id.jpg',
-      type: type,
-      firstSeenAt: DateTime(2026, 1, 1),
-    );
+  id: id,
+  url: 'https://example.com/$id.jpg',
+  type: type,
+  firstSeenAt: DateTime(2026, 1, 1),
+);
 
 Uint8List _bytes(int length) => Uint8List(length);
 

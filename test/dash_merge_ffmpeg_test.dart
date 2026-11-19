@@ -36,10 +36,23 @@ void main() {
   Future<File> makeVideoTrack(int seconds) async {
     final File out = File('${work.path}/video.m4s');
     final ProcessResult r = await Process.run(ffmpeg!, <String>[
-      '-y', '-hide_banner', '-loglevel', 'error',
-      '-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=15:duration=$seconds',
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-an',
-      '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov',
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x240:rate=15:duration=$seconds',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-an',
+      '-f',
+      'mp4',
+      '-movflags',
+      'frag_keyframe+empty_moov',
       out.path,
     ]);
     expect(r.exitCode, 0, reason: '生成视频轨失败: ${r.stderr}');
@@ -50,10 +63,23 @@ void main() {
   Future<File> makeAudioTrack(int seconds) async {
     final File out = File('${work.path}/audio.m4s');
     final ProcessResult r = await Process.run(ffmpeg!, <String>[
-      '-y', '-hide_banner', '-loglevel', 'error',
-      '-f', 'lavfi', '-i', 'sine=frequency=440:duration=$seconds',
-      '-c:a', 'aac', '-b:a', '128k', '-vn',
-      '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov',
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=440:duration=$seconds',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+      '-vn',
+      '-f',
+      'mp4',
+      '-movflags',
+      'frag_keyframe+empty_moov',
       out.path,
     ]);
     expect(r.exitCode, 0, reason: '生成音频轨失败: ${r.stderr}');
@@ -61,11 +87,16 @@ void main() {
   }
 
   /// 读出容器里的流类型与各自时长。
-  Future<List<({String type, double seconds})>> probeStreams(String path) async {
+  Future<List<({String type, double seconds})>> probeStreams(
+    String path,
+  ) async {
     final ProcessResult r = await Process.run(ffprobe!, <String>[
-      '-v', 'error',
-      '-show_entries', 'stream=codec_type,duration',
-      '-of', 'csv=p=0',
+      '-v',
+      'error',
+      '-show_entries',
+      'stream=codec_type,duration',
+      '-of',
+      'csv=p=0',
       path,
     ]);
     expect(r.exitCode, 0, reason: 'ffprobe 失败: ${r.stderr}');
@@ -74,12 +105,10 @@ void main() {
         .split(RegExp(r'\r?\n'))
         .where((String line) => line.contains(','))
         .map((String line) {
-      final List<String> parts = line.split(',');
-      return (
-        type: parts[0],
-        seconds: double.tryParse(parts[1]) ?? 0,
-      );
-    }).toList();
+          final List<String> parts = line.split(',');
+          return (type: parts[0], seconds: double.tryParse(parts[1]) ?? 0);
+        })
+        .toList();
   }
 
   test('两路分片合并后既有画面又有声音', () async {
@@ -104,11 +133,14 @@ void main() {
 
     expect(await output.exists(), isTrue);
 
-    final List<({String type, double seconds})> streams =
-        await probeStreams(output.path);
-    expect(streams.map((({String type, double seconds}) s) => s.type),
-        containsAll(<String>['video', 'audio']),
-        reason: '合并产物缺少轨道: $streams');
+    final List<({String type, double seconds})> streams = await probeStreams(
+      output.path,
+    );
+    expect(
+      streams.map((({String type, double seconds}) s) => s.type),
+      containsAll(<String>['video', 'audio']),
+      reason: '合并产物缺少轨道: $streams',
+    );
 
     final double vSeconds = streams
         .firstWhere((({String type, double seconds}) s) => s.type == 'video')
@@ -116,37 +148,42 @@ void main() {
     expect(vSeconds, closeTo(4, 0.2), reason: '视频时长被改动过: $vSeconds');
   }, timeout: const Timeout(Duration(minutes: 2)));
 
-  test('音轨比视频长时，不截断视频（这是去掉 -shortest 的原因）', () async {
+  test(
+    '音轨比视频长时，不截断视频（这是去掉 -shortest 的原因）',
+    () async {
+      if (ffmpeg == null) {
+        markTestSkipped('本机没有 ffmpeg');
+        return;
+      }
+
+      final File video = await makeVideoTrack(4);
+      // 音轨长 2 秒：如果加了 `-shortest`，视频会被砍成 2 秒。
+      final File audio = await makeAudioTrack(6);
+      final File output = File('${work.path}/merged-long.mp4');
+
+      final SystemFfmpegEngine engine = SystemFfmpegEngine();
+      await engine.run(
+        inputPath: video.path,
+        outputPath: output.path,
+        kind: TranscodeKind.dashMerge,
+        secondaryInputPath: audio.path,
+        onProgress: (double _) {},
+        isCancelled: () => false,
+      );
+
+      final List<({String type, double seconds})> streams = await probeStreams(
+        output.path,
+      );
+      final double vSeconds = streams
+          .firstWhere((({String type, double seconds}) s) => s.type == 'video')
+          .seconds;
+      expect(vSeconds, closeTo(4, 0.2), reason: '视频被音频长度带跑了: $vSeconds');
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test('走队列时成品覆盖视频轨原路径，中间音频被清掉', () async {
     if (ffmpeg == null) {
-      markTestSkipped('本机没有 ffmpeg');
-      return;
-    }
-
-    final File video = await makeVideoTrack(4);
-    // 音轨长 2 秒：如果加了 `-shortest`，视频会被砍成 2 秒。
-    final File audio = await makeAudioTrack(6);
-    final File output = File('${work.path}/merged-long.mp4');
-
-    final SystemFfmpegEngine engine = SystemFfmpegEngine();
-    await engine.run(
-      inputPath: video.path,
-      outputPath: output.path,
-      kind: TranscodeKind.dashMerge,
-      secondaryInputPath: audio.path,
-      onProgress: (double _) {},
-      isCancelled: () => false,
-    );
-
-    final List<({String type, double seconds})> streams =
-        await probeStreams(output.path);
-    final double vSeconds = streams
-        .firstWhere((({String type, double seconds}) s) => s.type == 'video')
-        .seconds;
-    expect(vSeconds, closeTo(4, 0.2),
-        reason: '视频被音频长度带跑了: $vSeconds');
-  }, timeout: const Timeout(Duration(minutes: 2)));
-
-  test('走队列时成品覆盖视频轨原路径，中间音频被清掉', () async {    if (ffmpeg == null) {
       markTestSkipped('本机没有 ffmpeg');
       return;
     }
@@ -159,11 +196,12 @@ void main() {
     // 挪到下载目录，模拟视频轨已经下载完成
     final File downloaded = File('${StoragePaths.downloads.path}/track.mp4');
     await video.copy(downloaded.path);
-    final File audioDownloaded = File('${StoragePaths.downloads.path}/track.m4a');
+    final File audioDownloaded = File(
+      '${StoragePaths.downloads.path}/track.m4a',
+    );
     await audio.copy(audioDownloaded.path);
 
-    final TranscodeQueue queue =
-        TranscodeQueue(engine: SystemFfmpegEngine());
+    final TranscodeQueue queue = TranscodeQueue(engine: SystemFfmpegEngine());
     final File output = File('${StoragePaths.temp.path}/merge-out.mp4');
 
     final TranscodeJob job = queue.enqueue(
@@ -177,11 +215,14 @@ void main() {
     await _waitDone(job, const Duration(seconds: 60));
     expect(job.status, TranscodeStatus.completed, reason: '失败: ${job.error}');
 
-    final List<({String type, double seconds})> streams =
-        await probeStreams(downloaded.path);
-    expect(streams.map((({String type, double seconds}) s) => s.type),
-        containsAll(<String>['video', 'audio']),
-        reason: '原路径上的文件没有被替换成合并产物');
+    final List<({String type, double seconds})> streams = await probeStreams(
+      downloaded.path,
+    );
+    expect(
+      streams.map((({String type, double seconds}) s) => s.type),
+      containsAll(<String>['video', 'audio']),
+      reason: '原路径上的文件没有被替换成合并产物',
+    );
 
     expect(await audioDownloaded.exists(), isFalse, reason: '中间音频没被清理');
     expect(await output.exists(), isFalse, reason: '临时成品没被清理');
@@ -219,42 +260,52 @@ void main() {
     );
 
     expect(await mp3.exists(), isTrue);
-    expect(await mp3.length(), greaterThan(10 * 1024),
-        reason: '抽出来的 mp3 太小，可能只有容器头');
+    expect(
+      await mp3.length(),
+      greaterThan(10 * 1024),
+      reason: '抽出来的 mp3 太小，可能只有容器头',
+    );
 
     final List<int> head = await _readAt(mp3, 0, 3);
-    final bool isMp3 = (head.length >= 3 &&
-            head[0] == 0x49 && head[1] == 0x44 && head[2] == 0x33) ||
+    final bool isMp3 =
+        (head.length >= 3 &&
+            head[0] == 0x49 &&
+            head[1] == 0x44 &&
+            head[2] == 0x33) ||
         (head.length >= 2 && head[0] == 0xFF && (head[1] & 0xE0) == 0xE0);
     expect(isMp3, isTrue, reason: '输出不是 mp3 容器');
   }, timeout: const Timeout(Duration(minutes: 2)));
 
-  test('纯视频 mp4 抽 MP3 会给出中文结论，而不是 ffmpeg 原文', () async {
-    if (ffmpeg == null) {
-      markTestSkipped('本机没有 ffmpeg');
-      return;
-    }
+  test(
+    '纯视频 mp4 抽 MP3 会给出中文结论，而不是 ffmpeg 原文',
+    () async {
+      if (ffmpeg == null) {
+        markTestSkipped('本机没有 ffmpeg');
+        return;
+      }
 
-    final File video = await makeVideoTrack(2);
-    final SystemFfmpegEngine engine = SystemFfmpegEngine();
+      final File video = await makeVideoTrack(2);
+      final SystemFfmpegEngine engine = SystemFfmpegEngine();
 
-    await expectLater(
-      engine.run(
-        inputPath: video.path,
-        outputPath: '${work.path}/silent.mp3',
-        kind: TranscodeKind.audioToMp3,
-        onProgress: (double _) {},
-        isCancelled: () => false,
-      ),
-      throwsA(
-        isA<TranscodeUnsupportedSource>().having(
-          (TranscodeUnsupportedSource e) => e.toString(),
-          'message',
-          contains('没有音轨'),
+      await expectLater(
+        engine.run(
+          inputPath: video.path,
+          outputPath: '${work.path}/silent.mp3',
+          kind: TranscodeKind.audioToMp3,
+          onProgress: (double _) {},
+          isCancelled: () => false,
         ),
-      ),
-    );
-  }, timeout: const Timeout(Duration(minutes: 2)));
+        throwsA(
+          isA<TranscodeUnsupportedSource>().having(
+            (TranscodeUnsupportedSource e) => e.toString(),
+            'message',
+            contains('没有音轨'),
+          ),
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 }
 
 Future<List<int>> _readAt(File file, int offset, int length) async {

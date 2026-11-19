@@ -48,7 +48,7 @@ class HlsDownloadResult {
 /// 不做 TS→MP4 转封装，那是 TranscodeQueue 的事。
 class HlsDownloader {
   HlsDownloader({FileDownloader? downloader, this.parser = const M3u8Parser()})
-      : _downloader = downloader ?? FileDownloader();
+    : _downloader = downloader ?? FileDownloader();
 
   final FileDownloader _downloader;
   final M3u8Parser parser;
@@ -132,8 +132,9 @@ class HlsDownloader {
       }
     }
 
-    final int concurrency =
-        total < AppConstants.maxConcurrentSegments ? total : AppConstants.maxConcurrentSegments;
+    final int concurrency = total < AppConstants.maxConcurrentSegments
+        ? total
+        : AppConstants.maxConcurrentSegments;
     await Future.wait(<Future<void>>[
       for (int i = 0; i < concurrency; i++) worker(),
     ]);
@@ -234,7 +235,9 @@ class HlsDownloader {
       return;
     }
 
-    final Map<String, String> segmentHeaders = Map<String, String>.from(headers);
+    final Map<String, String> segmentHeaders = Map<String, String>.from(
+      headers,
+    );
     final M3u8ByteRange? range = segment.byteRange;
     if (range != null) {
       final int start = range.offset ?? 0;

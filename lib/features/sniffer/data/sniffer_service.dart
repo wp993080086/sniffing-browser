@@ -19,7 +19,8 @@ import '../domain/media_type.dart';
 ///
 /// 缺了请求头，下载时几乎一定 403（尤其是 Referer 校验严格的图床和视频站）。
 class SnifferService extends ChangeNotifier {
-  final LinkedHashMap<String, MediaItem> _items = LinkedHashMap<String, MediaItem>();
+  final LinkedHashMap<String, MediaItem> _items =
+      LinkedHashMap<String, MediaItem>();
 
   /// URL -> 请求头。LRU 限制容量，长时间浏览不会无限膨胀。
   final LinkedHashMap<String, Map<String, String>> _headerCache =
@@ -75,7 +76,9 @@ class SnifferService extends ChangeNotifier {
     // 为一个后台字段触发整列表重建不值得。
     final MediaItem? existing = _items[HashUtil.md5Short(key)];
     if (existing != null && existing.requestHeaders.isEmpty) {
-      _items[existing.id] = existing.copyWith(requestHeaders: _headerCache[key]);
+      _items[existing.id] = existing.copyWith(
+        requestHeaders: _headerCache[key],
+      );
     }
   }
 
@@ -104,7 +107,7 @@ class SnifferService extends ChangeNotifier {
         logWarn(
           'Sniffer',
           '跳过非媒体响应: $url —— 扩展名像媒体，但服务器返回 $mimeType'
-          '（通常是 404 回退到首页）',
+              '（通常是 404 回退到首页）',
         );
       }
       return null;

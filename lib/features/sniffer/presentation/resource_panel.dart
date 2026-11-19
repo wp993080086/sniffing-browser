@@ -15,10 +15,8 @@ Future<void> showResourcePanel(BuildContext context) {
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: true,
-    builder: (BuildContext context) => const FractionallySizedBox(
-      heightFactor: 0.82,
-      child: ResourcePanel(),
-    ),
+    builder: (BuildContext context) =>
+        const FractionallySizedBox(heightFactor: 0.82, child: ResourcePanel()),
   );
 }
 

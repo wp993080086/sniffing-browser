@@ -56,7 +56,8 @@ class DownloadTile extends ConsumerWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(2),
                 child: LinearProgressIndicator(
-                  value: status == DownloadStatus.running ||
+                  value:
+                      status == DownloadStatus.running ||
                           status == DownloadStatus.completed
                       ? task.progress.value
                       : (status == DownloadStatus.failed ? 0 : null),
@@ -164,16 +165,20 @@ class _Menu extends ConsumerWidget {
 
     // 合并还没走完时不给任何手动入口：合并成功会覆盖源文件，
     // 这时候去读那个 mp4 可能拿到只写了一半的内容。
-    final bool merging = queue.jobs.any((TranscodeJob j) =>
-        j.sourceTaskId == task.id &&
-        j.kind.needsSecondaryInput &&
-        !j.status.isFinished);
+    final bool merging = queue.jobs.any(
+      (TranscodeJob j) =>
+          j.sourceTaskId == task.id &&
+          j.kind.needsSecondaryInput &&
+          !j.status.isFinished,
+    );
     if (merging) return const <TranscodeKind>[];
 
     // 已经有转换任务（含未完成）就不再提供，避免重复入队。
     // 合并音视频不算 —— 它是队列自动排的收尾动作，不该挡住用户手动转码。
-    final bool hasJob = queue.jobs.any((TranscodeJob j) =>
-        j.sourceTaskId == task.id && !j.kind.needsSecondaryInput);
+    final bool hasJob = queue.jobs.any(
+      (TranscodeJob j) =>
+          j.sourceTaskId == task.id && !j.kind.needsSecondaryInput,
+    );
     if (hasJob) return const <TranscodeKind>[];
 
     return <TranscodeKind>[
@@ -186,7 +191,8 @@ class _Menu extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bool canExport = task.status == DownloadStatus.completed &&
+    final bool canExport =
+        task.status == DownloadStatus.completed &&
         _mediaFeaturesReady &&
         task.savedPath != null;
     final List<TranscodeKind> kinds = _availableKinds(ref);
@@ -209,10 +215,7 @@ class _Menu extends ConsumerWidget {
         if (canOpen && PlatformInfo.current == AppPlatform.android)
           const PopupMenuItem<String>(value: 'share', child: Text('分享')),
         if (canExport)
-          PopupMenuItem<String>(
-            value: 'export',
-            child: Text(_exportLabel()),
-          ),
+          PopupMenuItem<String>(value: 'export', child: Text(_exportLabel())),
         for (final TranscodeKind kind in kinds)
           PopupMenuItem<String>(
             value: 'transcode:${kind.name}',
@@ -279,9 +282,7 @@ class _Menu extends ConsumerWidget {
             if (!await MediaExporter.openFile(path)) {
               messenger
                 ..hideCurrentSnackBar()
-                ..showSnackBar(
-                  const SnackBar(content: Text('没有找到能打开这个文件的应用')),
-                );
+                ..showSnackBar(const SnackBar(content: Text('没有找到能打开这个文件的应用')));
             }
           case 'share':
             final String? path = task.savedPath;
@@ -289,13 +290,12 @@ class _Menu extends ConsumerWidget {
             if (!await MediaExporter.shareFile(path)) {
               messenger
                 ..hideCurrentSnackBar()
-                ..showSnackBar(
-                  const SnackBar(content: Text('没有找到能分享这个文件的应用')),
-                );
+                ..showSnackBar(const SnackBar(content: Text('没有找到能分享这个文件的应用')));
             }
           case 'export':
-            final ExportResult result =
-                await ref.read(downloadQueueProvider).export(task.id);
+            final ExportResult result = await ref
+                .read(downloadQueueProvider)
+                .export(task.id);
             messenger
               ..hideCurrentSnackBar()
               ..showSnackBar(SnackBar(content: Text(result.displayMessage)));
@@ -351,7 +351,8 @@ class _TranscodeStatus extends ConsumerWidget {
               text = '已转换为 ${current.kind.extension.toUpperCase()}';
             } else if (current.exported) {
               // 移动端入库成功，把落点直接写出来，别让用户去猜文件在哪。
-              text = '已转为 ${current.kind.extension.toUpperCase()}，'
+              text =
+                  '已转为 ${current.kind.extension.toUpperCase()}，'
                   '${current.exportMessage}';
             } else {
               text = current.exportMessage!;

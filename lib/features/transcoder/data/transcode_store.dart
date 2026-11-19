@@ -28,7 +28,8 @@ class TranscodeStore {
   static const int maxJobs = 100;
 
   File get file =>
-      _fileOverride ?? File(p.join(StoragePaths.root.path, 'transcode_jobs.json'));
+      _fileOverride ??
+      File(p.join(StoragePaths.root.path, 'transcode_jobs.json'));
 
   Future<List<TranscodeJob>> load() async {
     final File target = file;
@@ -131,8 +132,10 @@ class TranscodeStore {
     job.exported = raw['exported'] as bool? ?? false;
     job.mediaUri = raw['mediaUri'] as String?;
 
-    final TranscodeStatus? status =
-        _enumByName(TranscodeStatus.values, raw['status'] as String?);
+    final TranscodeStatus? status = _enumByName(
+      TranscodeStatus.values,
+      raw['status'] as String?,
+    );
     if (status != null) job.setStatus(status);
     return job;
   }

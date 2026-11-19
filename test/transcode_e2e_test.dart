@@ -75,9 +75,9 @@ void main() {
       final Duration? srcDuration = await _duration(engine, source.path);
       final Duration? outDuration = await _duration(engine, output.path);
       if (srcDuration != null && outDuration != null) {
-        final int diff = (srcDuration.inMilliseconds - outDuration.inMilliseconds).abs();
-        expect(diff, lessThan(1500),
-            reason: '时长差异 ${diff}ms，转封装不该改变时长');
+        final int diff =
+            (srcDuration.inMilliseconds - outDuration.inMilliseconds).abs();
+        expect(diff, lessThan(1500), reason: '时长差异 ${diff}ms，转封装不该改变时长');
       }
 
       expect(progress, isNotEmpty, reason: '没有收到进度回调');
@@ -101,11 +101,19 @@ void main() {
 
       final List<int> head = await _readAt(output, 0, 3);
       // ID3 标签或帧同步字
-      final bool isId3 = head.length >= 3 &&
-          head[0] == 0x49 && head[1] == 0x44 && head[2] == 0x33;
-      final bool isFrame = head.length >= 2 && head[0] == 0xFF && (head[1] & 0xE0) == 0xE0;
-      expect(isId3 || isFrame, isTrue,
-          reason: '输出不是 mp3，头字节 ${head.map((int b) => b.toRadixString(16)).join(' ')}');
+      final bool isId3 =
+          head.length >= 3 &&
+          head[0] == 0x49 &&
+          head[1] == 0x44 &&
+          head[2] == 0x33;
+      final bool isFrame =
+          head.length >= 2 && head[0] == 0xFF && (head[1] & 0xE0) == 0xE0;
+      expect(
+        isId3 || isFrame,
+        isTrue,
+        reason:
+            '输出不是 mp3，头字节 ${head.map((int b) => b.toRadixString(16)).join(' ')}',
+      );
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('取消能中断进程并清掉半成品', () async {
@@ -116,9 +124,16 @@ void main() {
         final String? ffmpeg = await SystemFfmpegEngine.locateFfmpeg();
         expect(ffmpeg, isNotNull);
         final ProcessResult gen = await Process.run(ffmpeg!, <String>[
-          '-y', '-hide_banner',
-          '-f', 'lavfi', '-i', 'sine=frequency=440:duration=180',
-          '-c:a', 'aac', '-b:a', '128k',
+          '-y',
+          '-hide_banner',
+          '-f',
+          'lavfi',
+          '-i',
+          'sine=frequency=440:duration=180',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '128k',
           longSource.path,
         ]);
         expect(gen.exitCode, 0, reason: '生成测试音频失败: ${gen.stderr}');
@@ -184,12 +199,17 @@ Future<Duration?> _duration(SystemFfmpegEngine engine, String path) async {
   final String? probe = await SystemFfmpegEngine.locateFfprobe();
   if (probe == null) return null;
   final ProcessResult result = await Process.run(probe, <String>[
-    '-v', 'error',
-    '-show_entries', 'format=duration',
-    '-of', 'default=noprint_wrappers=1:nokey=1',
+    '-v',
+    'error',
+    '-show_entries',
+    'format=duration',
+    '-of',
+    'default=noprint_wrappers=1:nokey=1',
     path,
   ]);
   if (result.exitCode != 0) return null;
   final double? seconds = double.tryParse((result.stdout as String).trim());
-  return seconds == null ? null : Duration(milliseconds: (seconds * 1000).round());
+  return seconds == null
+      ? null
+      : Duration(milliseconds: (seconds * 1000).round());
 }

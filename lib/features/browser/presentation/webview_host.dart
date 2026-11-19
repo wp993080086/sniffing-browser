@@ -127,7 +127,7 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
     logInfo(
       'WebView',
       '初始化 ${_tab.id}，平台=${PlatformInfo.displayName}，'
-      '嗅探通道=${_useCdp ? "CDP" : "原生回调"}',
+          '嗅探通道=${_useCdp ? "CDP" : "原生回调"}',
     );
   }
 
@@ -181,12 +181,16 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
   void _hintBlocked(String url) {
     final DateTime now = DateTime.now();
     final DateTime? last = _lastBlockedAt;
-    if (last != null && now.difference(last) < const Duration(seconds: 3)) return;
+    if (last != null && now.difference(last) < const Duration(seconds: 3)) {
+      return;
+    }
     _lastBlockedAt = now;
     if (!mounted) return;
 
     final String host = Uri.tryParse(url)?.host ?? url;
-    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
+      context,
+    );
     if (messenger == null) return;
     messenger
       ..hideCurrentSnackBar()
@@ -361,8 +365,9 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
   Future<void> _nudgeAutoplay(InAppWebViewController controller) async {
     if (!widget.active) return;
     try {
-      final Object? result =
-          await controller.evaluateJavascript(source: _autoplayNudge);
+      final Object? result = await controller.evaluateJavascript(
+        source: _autoplayNudge,
+      );
       final int kicked = result is int ? result : int.tryParse('$result') ?? 0;
       if (kicked > 0) {
         logInfo('WebView', '自动播放兜底：已启动 $kicked 个 video[autoplay]');
@@ -385,7 +390,8 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
   Future<void> _pauseMedia(InAppWebViewController controller) async {
     try {
       final Object? paused = await controller.evaluateJavascript(
-        source: 'window.__sbMediaGovernor ? '
+        source:
+            'window.__sbMediaGovernor ? '
             'window.__sbMediaGovernor.pauseAll() : 0',
       );
       final int count = paused is int ? paused : int.tryParse('$paused') ?? 0;
@@ -427,8 +433,9 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
   /// 每次加载完成后补一次新页签接管脚本（页面换掉后 window 是新的）。
   Future<void> _installOpenTabPatch(InAppWebViewController controller) async {
     try {
-      final Object? result =
-          await controller.evaluateJavascript(source: _openTabPatch);
+      final Object? result = await controller.evaluateJavascript(
+        source: _openTabPatch,
+      );
       if ('$result' == 'ok') {
         logInfo('WebView', '已接管新窗口打开（${_tab.id}）');
       }
@@ -508,7 +515,7 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
           logWarn(
             'WebView',
             '加载完成但捕获数为 0，嗅探通道可能未生效'
-            '（通道=${_useCdp ? "CDP" : "原生回调"}）',
+                '（通道=${_useCdp ? "CDP" : "原生回调"}）',
           );
         }
         await _tabs.handleLoadStop(_tab.id, url);
@@ -583,20 +590,18 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
       // 掘金会申请）。
       //
       // 所以这里永远返回一个有效对象。做嗅探下载器用不到这些权限，一律拒绝。
-      onPermissionRequest: (
-        InAppWebViewController controller,
-        PermissionRequest request,
-      ) async {
-        AppLog.instance.bump('webview.permissionRequest');
-        logInfo(
-          'WebView',
-          '拒绝权限请求: ${request.resources} 来源=${request.origin}',
-        );
-        return PermissionResponse(
-          resources: request.resources,
-          action: PermissionResponseAction.DENY,
-        );
-      },
+      onPermissionRequest:
+          (InAppWebViewController controller, PermissionRequest request) async {
+            AppLog.instance.bump('webview.permissionRequest');
+            logInfo(
+              'WebView',
+              '拒绝权限请求: ${request.resources} 来源=${request.origin}',
+            );
+            return PermissionResponse(
+              resources: request.resources,
+              action: PermissionResponseAction.DENY,
+            );
+          },
       // Windows 上这两个回调不接线：原生侧不触发，接了也是死代码。
       onLoadResource: _useCdp
           ? null

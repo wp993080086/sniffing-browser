@@ -29,7 +29,9 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
         actions: <Widget>[
           IconButton(
             tooltip: _onlyProblems ? '显示全部' : '只看警告和错误',
-            icon: Icon(_onlyProblems ? Icons.filter_alt : Icons.filter_alt_outlined),
+            icon: Icon(
+              _onlyProblems ? Icons.filter_alt : Icons.filter_alt_outlined,
+            ),
             onPressed: () => setState(() => _onlyProblems = !_onlyProblems),
           ),
           IconButton(
@@ -37,9 +39,11 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
             icon: const Icon(Icons.copy_all_outlined),
             onPressed: () async {
               // 先取 messenger 再 await，避免跨异步间隙用 context。
-              final ScaffoldMessengerState messenger =
-                  ScaffoldMessenger.of(context);
-              final String text = AppLog.instance.diagnosticsHeader() +
+              final ScaffoldMessengerState messenger = ScaffoldMessenger.of(
+                context,
+              );
+              final String text =
+                  AppLog.instance.diagnosticsHeader() +
                   AppLog.instance.export();
               await Clipboard.setData(ClipboardData(text: text));
               messenger.showSnackBar(
@@ -76,9 +80,11 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     final List<LogEntry> all = AppLog.instance.entries;
     final List<LogEntry> source = _onlyProblems
         ? all
-            .where((LogEntry e) =>
-                e.level == LogLevel.warn || e.level == LogLevel.error)
-            .toList()
+              .where(
+                (LogEntry e) =>
+                    e.level == LogLevel.warn || e.level == LogLevel.error,
+              )
+              .toList()
         : all;
 
     if (source.isEmpty) {
@@ -165,8 +171,10 @@ class _EnvironmentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final Map<String, int> counters = AppLog.instance.counters;
     final List<MapEntry<String, int>> entries = counters.entries.toList()
-      ..sort((MapEntry<String, int> a, MapEntry<String, int> b) =>
-          b.value.compareTo(a.value));
+      ..sort(
+        (MapEntry<String, int> a, MapEntry<String, int> b) =>
+            b.value.compareTo(a.value),
+      );
 
     final String channel = PlatformInfo.isWindowsDesktop ? 'CDP' : '原生回调';
 
