@@ -6,7 +6,10 @@
 
 ## 当前状态
 
-骨架 + 极简可跑界面。**Windows 端核心链路已端到端实测**：嗅探 → 队列 → 下载 → 分片合并 → 转码成 mp4/mp3。Android 与鸿蒙的嗅探代码已写但未在真机验证，相册导出与移动端转码仍待接原生。
+**Windows 端核心链路已端到端实测**：嗅探 → 队列 → 下载 → 分片合并 → 转码成 mp4/mp3。
+**Android 在 USB 真机上跑**：双回调嗅探 A2 已通过，MediaStore 导出与原生 FFmpegKit
+转码已实现（2026-11-12），待真机验证导出与转 MP3。鸿蒙平台工程尚未生成，
+原生导出 / 转码仍未接入。
 
 详细方案见 [docs/tech-design.md](docs/tech-design.md)。
 
@@ -14,17 +17,43 @@
 
 | 模块 | 内容 | 验证状态 |
 | --- | --- | --- |
-| 浏览器 | 地址栏、前进后退、刷新、加载进度 | Windows 实测 |
+| 浏览器 | 两层顶栏：第一层前进后退 / 地址栏 / 刷新（加载中变停止），第二层搜索引擎 / 页签 / 下载 / 诊断；嗅探入口是可拖动的右下角毛玻璃悬浮按钮（56dp，位置只存内存） | Windows 实测 |
+| 历史记录 | 页面加载完成自动记录（同地址只留一条并提到最前），按天分组的列表、单条删除、清空；落盘在应用私有目录，重启后还在 | 编译 + 单测覆盖，待真机 |
+| 收藏夹 | 地址栏星标一键收藏 / 取消，列表按加入时间倒序、单条取消、清空；与历史分文件存储 | 编译 + 单测覆盖，待真机 |
+| 性能 | 非活跃页签自动挂起 WebView 并暂停页面音视频；自动播放只拉视口内第一个，页面内媒体播放互斥；视频缩略图抽帧串行 | 编译 + 单测覆盖 SerialGate，待真机 |
+| 多页签 | 每页签独立 WebView（同时最多 4 个，超出按最久未用回收），嗅探结果跟着页签走；`target=_blank` / `window.open` 自动开新页签；两栏卡片瀑布流切换器；返回手势先退网页再退应用 | 编译 + 单测覆盖，待真机 |
 | 嗅探（移动端） | `onLoadResource` + `shouldInterceptRequest` 双通道，请求头缓存（Referer/Cookie） | 未实测 |
 | 嗅探（Windows） | CDP `Network.responseReceived` / `requestWillBeSent` 事件推送，非阻塞 | Windows 实测 |
-| 资源面板 | 类型分组筛选、文件名/大小展示、一键入队 | Windows 实测 |
+| 请求头补全 | 嗅探缓存头 + `pageUrl` 兜底 Referer + 按平台 UA + **按请求 URL 从 `CookieManager` 现取 Cookie**（Android） | 单测覆盖合并逻辑，待真机复验 403 站点 |
+| 资源面板 | 类型分组筛选、缩略图（图片 + 视频首帧）、文件名/大小展示、一键入队 | 桌面 Windows 实测；Android 抽帧待真机复验 |
 | 下载队列 | 并发 3、状态机、取消、重试、进度独立通知 | 端到端测试 |
 | 单文件下载 | `.part` 临时文件 + rename，中断不污染目标文件 | 端到端测试 |
 | HLS | master 选最高码率、并发分片、AES-128 解密、fMP4 init 段处理、二进制合并、分片级续传 | 端到端测试 |
 | 转码（桌面） | 调用系统 ffmpeg：TS→MP4 无损转封装、音频→MP3 重编码，进度解析、取消 | 端到端测试 |
 | 日志与诊断 | 文件日志、全局错误捕获、通道计数器、诊断页 | Windows 实测 |
-| 导出 | 桌面纯 Dart 复制；移动端走 MethodChannel | 桌面可用 |
-| 转码（移动端） | MethodChannel 接口已定义 | 待接 FFmpeg |
+| 导出 | 桌面纯 Dart 复制；Android MediaStore（MediaStore + `IS_PENDING`） | 桌面可用；Android 真机已验证 mp4 入库 |
+| 转码（Android） | 原生 `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`（LGPL）经 MethodChannel 桥接，完成后自动写进 MediaStore | 已实现，待真机复验 MP3 落库 |
+| 转换页与持久化 | 独立「转换」页（入口在下载页 AppBar，带进行中角标）；任务落盘 `transcode_jobs.json`，重启后 pending 续跑、running 标中断；已完成项可「打开」产物 | 单元测试覆盖 |
+| 产物打开 / 分享 | 下载项菜单「打开」全平台可用（Android 走 FileProvider 的 `content://`，无需先导出）；「分享」仅 Android，拉起系统分享面板 | 编译 + 单元测试覆盖，待真机 |
+| 下载记录持久化 | `download_tasks.json`（私有 files 目录，不用 cache）；重启后历史还在，没下完的标「已中断，可重试」且不自动重跑 | 单元测试覆盖 |
+
+Android 上转换产物会**自动**写进系统媒体库：MP3 落到 `音乐/SniffingBrowser`，
+MP4 落到 `视频/SniffingBrowser`。原因见下——应用只能直接写私有目录，而
+`Android/data` 在 Android 11+ 的文件管理器里进不去，不复制一份用户就找不到。
+
+下载完成的任务在下载页菜单里可以直接**「打开」**（Android 通过 `FileProvider` 把
+私有目录的文件换成带读授权的 `content://` 交给系统播放器，不必先保存到相册），
+Android 还多一个**「分享」**拉起系统分享面板；桌面只给「打开」。
+
+转换进度与任务列表在**「转换」页**（下载页右上角 `⇄` 图标，角标＝进行中数量）。
+发起仍在下载项菜单里：点完「转为 MP3」后菜单项会消失（防重复入队），
+所以 SnackBar 带一个「查看进度」直达转换页。转换页里已完成的任务可以点 ⋮ →「打开」，
+直接交给系统播放器（Android 用入库的 `content://` URI 带读授权，桌面拉起默认程序）。
+
+资源列表的缩略图只覆盖**图片和视频**：图片带 Referer/Cookie 重新取一次并降采样到 160px，
+视频在 Android 用 `MediaMetadataRetriever`、桌面用本机 ffmpeg 抽第一帧；
+音频 / HLS / DASH 没有便宜的封面来源，仍是类型图标。取不到图（403、超时、单图超过 3 MB）
+一律静默退回图标，不转圈也不显示破图。并发和流量保护见 `docs/tech-design.md` 5.2.1。
 
 ## FFmpeg（桌面端）
 
@@ -105,11 +134,30 @@ RUN_E2E=1 flutter test test/transcode_e2e_test.dart
 `runZonedGuarded` 三重），崩溃信息会写进同一个文件。
 
 
+## Android 原生能力（2026-11-12 新增）
+
+`MainActivity.kt` 注册两个 MethodChannel，只在 Android 生效，桌面与鸿蒙不受影响：
+
+| 通道 | 实现 | 能力 |
+| --- | --- | --- |
+| `sniffing_browser/media_exporter` | `MediaExporterHandler.kt` | API 29+ 走 MediaStore + `IS_PENDING` 写入相册 / 音乐 / 下载目录，无需存储权限；API ≤ 28 走公共目录 + 媒体扫描 |
+| `sniffing_browser/transcoder` | `TranscodeBridge.kt` | FFmpegKit 执行 TS→MP4、抽 MP3、DASH 音视频合并，带进度与取消 |
+
+转码依赖写在 `android/app/build.gradle.kts`：
+`dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`（LGPL、FFmpeg 8.1.2、
+含 libmp3lame）。官方 `com.arthenica:ffmpeg-kit-*` 已于 2025-04 从 Maven Central 移除，
+这里用社区维护的等价构建，**没有引入 Flutter pub 包**，所以 `pubspec.yaml` 不变。
+
+AAR 只发布 `arm64-v8a` / `x86_64`，因此 `ndk.abiFilters` 也限定为这两个 ABI。
+带 FFmpeg 的 debug APK 约 227MB（此前 184MB）。32 位设备需自行编译 AAR。
+
 ## 未实现
 
-- `MediaExporter` 的 Android（MediaStore）/ HarmonyOS（showAssetsCreationDialog）实现
-- 移动端 FFmpeg 接入：Android `ffmpeg_kit_flutter_new`、鸿蒙 `@ohos/ffmpeg-kit`
+- `MediaExporter` 的 HarmonyOS（`showAssetsCreationDialog`）实现
+- 鸿蒙侧 FFmpeg 接入（`@ohos/ffmpeg-kit` 或同等 ArkTS 桥接）
 - `ohos/` 平台目录（需要 Flutter-OH SDK 与 DevEco Studio，本机尚未配置）
+- Android TS→MP4 的「只重编音频」失败回退（桌面已有）
+- 单文件字节级续传（Range 逐站行为不可靠；HLS 按分片续传已实现；重启后点重试即续）
 - DASH 分片重组（当前直接提示不支持）
 - 代理支持：`dio` 默认不读 `HTTP_PROXY` 环境变量，需要走代理的网络环境目前直连
 
@@ -161,6 +209,8 @@ lib/
 
 ## 已知限制
 
+- 仍 403 的站点：请求头已经尽量补齐（含 CookieManager 现取 Cookie），但要求
+  `Origin`、`Sec-Fetch-*`、动态签名或绑定客户端 TLS 指纹的站点仍可能拒绝
 - DRM（Widevine / FairPlay）内容无法处理
 - YouTube、B 站这类签名 + MSE 拼流的站点抓不到原始分片
 - `blob:` 资源直接过滤，不显示

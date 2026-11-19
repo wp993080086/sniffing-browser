@@ -1,27 +1,56 @@
 # 媒体嗅探浏览器 — 技术方案
 
-> 状态：草案 v2
+> 状态：实现同步版（2026-11-12 校准，原始设计稿为 v2）
 > 目标平台：Android、HarmonyOS NEXT、Windows
 > 形态：自用工具（不上架）
+>
+> 本文保留设计推演与实测记录。2026-11-11 已按实际代码校准版本、依赖、状态管理、
+> FFmpeg、数据模型、目录结构与实施阶段状态。**实现事实以 `README.md`、`pubspec.yaml`
+> 与 `lib/` 代码为准**；标注「设计」「待实现」「阶段验收」的内容是计划，不是现状。
+
+---
+
+## 0. 当前实现状态（2026-11-12 更新）
+
+| 端 | 状态 |
+| --- | --- |
+| Windows | 首发基线。嗅探 → 队列 → 下载 → 分片合并 → 转码 mp4 / mp3 已端到端实测 |
+| Android | 嗅探双回调已在 USB 真机验收（A2：85 / 83）；MediaStore 导出、原生 FFmpegKit 转码已实现（2026-11-12），待真机跑通导出 / 转 MP3 |
+| HarmonyOS NEXT |  sniffing 侧同 Android；`ohos/` 平台目录尚未生成（需 Flutter-OH SDK + DevEco Studio） |
+
+**已落地**：CDP 嗅探（Windows）、移动端双回调嗅探、资源分类与内容校验、
+并发下载队列、HLS（master 选码率 / AES-128 / fMP4 init 段 / 分片级续传 / 流式合并）、
+DASH 音视频自动配对与合并、桌面系统 ffmpeg 转码、日志与诊断页、桌面纯 Dart 导出、
+Android MediaStore 导出、Android 原生 FFmpegKit 转码（TS→MP4 / 抽 MP3 / 合并音视频）、
+转换任务独立页面与持久化（`transcode_jobs.json`）、下载记录持久化
+（`download_tasks.json`，2026-11-12）。
+
+**未落地**：鸿蒙原生导出与 FFmpeg、单文件字节级续传、MPD 分片重组、鸿蒙平台工程。
+详见 `README.md`「未实现」。
+
+**范围变更（2026-11-12）**：用户在 Android USB 真机上跑，明确要求补齐下载完成后的
+「导出」与「转 MP3」。8.0 原本定的「A 用例全绿才启动移动端原生导出 / FFmpeg」门槛
+由用户决定提前解除，改用原生 AAR 方案落地（见 3.4、5.5）。A1 / A3~A6 仍未验收。
 
 ---
 
 ## 1. 项目概述
 
-做一个内置 WebView 的浏览器应用，用户在其中正常浏览网页时，自动收集页面上加载的图片、音频、视频资源，并提供下载能力。对 HLS（m3u8）流媒体，需要解析分片、解密并合并成完整可播放文件。
+做一个内置 WebView 的浏览器应用，用户在其中正常浏览网页时，自动收集页面上加载的图片、音频、视频与 HLS / DASH 分片，提供下载、合并、转码与导出。
 
-**核心能力边界**：
+**核心能力边界**（「实现」列以 2026-11-11 代码为准）：
 
-| 能力 | 是否支持 |
-| --- | --- |
-| 图片 / 音频 / 普通视频文件嗅探与下载 | 支持 |
-| HLS（m3u8）流媒体合并下载 | 支持 |
-| 断点续传、多分片并发 | 支持 |
-| TS 转 MP4 | 支持（FFmpeg 无损 remux） |
-| 音频转 MP3 | 支持（FFmpeg 重编码，有损） |
-| DASH（mpd） | 有限支持，仅完整分片 |
-| Widevine / FairPlay 等 DRM 内容 | 不支持 |
-| 签名参数保护的平台（YouTube、B 站等） | 不支持 |
+| 能力 | 是否支持 | 实现 |
+| --- | --- | --- |
+| 图片 / 音频 / 普通视频文件嗅探与下载 | 支持 | 已落地，Windows 实测 |
+| HLS（m3u8）流媒体合并下载 | 支持 | 已落地，端到端测试覆盖 |
+| 分片级续传、多分片并发 | 支持 | 任务并发 3、分片并发 6；单文件字节级续传未实现 |
+| TS 转 MP4 | 支持（FFmpeg 无损 remux） | 桌面已实测；Android 走原生 FFmpegKit，待真机验证 |
+| 音频转 MP3 | 支持（FFmpeg 重编码，有损） | 桌面已实测；Android 走原生 FFmpegKit 的 libmp3lame，待真机验证 |
+| DASH（mpd）分片重组 | 不支持 | 不解析 MPD；仅嗅探到的完整 `.m4s` 分片可下载，并自动配对音视频合并，见 5.8 |
+| 导出到系统相册 / 音乐目录 | 支持 | 桌面纯 Dart 文件复制；Android MediaStore（`IS_PENDING`）；鸿蒙未实现 |
+| Widevine / FairPlay 等 DRM 内容 | 不支持 | — |
+| 签名参数保护的平台（YouTube 等） | 不支持 | B 站的 `.m4s` 是普通 HTTP 请求，属例外，见 5.8 |
 
 ---
 
@@ -53,17 +82,18 @@ Flutter 官方主线的 `flutter` 仓库中没有 `ohos` 平台目录，鸿蒙�
 
 `flutter_inappwebview` 是功能最完整的 Flutter WebView 插件，鸿蒙适配版坐标为 `CPF-Flutter/flutter_inappwebview`，分支 `br_v6.1.5_ohos`，TAG `6.1.5-ohos-1.0.0`。
 
-已验证支持的能力：
+已验证支持的能力。注意 **`shouldInterceptRequest` / `onLoadResource` 两行只适用于 Android / 鸿蒙**，
+Windows 上这两个回调不可用，嗅探改走 CDP（见 2.3）：
 
 | API | ohos 支持 | 本项目是否依赖 |
 | --- | --- | --- |
 | `InAppWebView` / `InAppWebViewController` | 是 | 是 |
-| `evaluateJavascript` | 是 | 是 |
-| `addJavaScriptHandler` | 是 | 是 |
-| `shouldOverrideUrlLoading` | 是 | 否 |
-| `shouldInterceptRequest` | 是 | **核心依赖** |
-| `onLoadResource` | 是 | **核心依赖** |
-| `useShouldInterceptAjaxRequest` | 是 | 可选 |
+| `evaluateJavascript` | 是 | 是（自动播放兜底脚本） |
+| `addJavaScriptHandler` | 是 | 否 |
+| `shouldOverrideUrlLoading` | 是 | **仅移动端**：拦截 `bilibili://` / `intent://` 等非 http 协议跳转；Windows 侧不启用 |
+| `shouldInterceptRequest` | 是 | **核心依赖（仅移动端）**；Windows 侧不用 |
+| `onLoadResource` | 是 | **核心依赖（仅移动端）**；Windows 侧不存在 |
+| `useShouldInterceptAjaxRequest` | 是 | 否 |
 
 官方验证环境组合（以 3.35 为例）：
 
@@ -161,141 +191,170 @@ Dart 侧不提供 `onPermissionRequest` 时，插件收到的是 null，`*value`
 
 ### 3.1 版本锁定
 
-**不追 3.41 线。** `flutter_inappwebview` 的鸿蒙适配仅在 `3.7 / 3.22 / 3.35` 三条线验证过（3.27 甚至不在 README 兼容列表内）。选用 3.35 线，是当前「插件验证完整 + 版本不过时」的最优平衡点。
+**两条版本线并行，不把日常开发锁死在 3.35。** `flutter_inappwebview` 的鸿蒙适配仅在
+`3.7 / 3.22 / 3.35` 三条线验证过（3.27 甚至不在 README 兼容列表内），所以鸿蒙构建选
+3.35 线；日常开发与 Android / Windows 构建用本机已有的官方 Flutter 3.44.9。
+`pubspec.yaml` 的 Dart SDK 约束写成 `>=3.9.0 <4.0.0`，两条线都能满足。
 
-| 组件 | 版本 |
-| --- | --- |
-| Flutter SDK（鸿蒙） | `3.35.8-ohos-0.0.1` |
-| Flutter SDK（Android + Windows） | 官方 `3.35.x` |
-| HarmonyOS SDK | `6.0.1 (API 21)` |
-| DevEco Studio | `6.0.1.260` |
-| flutter_inappwebview | `6.1.5-ohos-1.0.0` |
+| 组件 | 版本 / 约束 | 用途 |
+| --- | --- | --- |
+| Dart SDK（`pubspec.yaml`） | `>=3.9.0 <4.0.0` | 兼容 3.35 线（Dart 3.9）与 3.44 线（Dart 3.12） |
+| 官方 Flutter | 3.44.9（本机已装） | 日常开发、Android、Windows |
+| Flutter-OH | 3.35.8-ohos | 仅鸿蒙构建，需 DevEco Studio |
+| HarmonyOS SDK | `6.0.1 (API 21)` | 插件官方验证环境 |
+| DevEco Studio | `6.0.1.260` | 同上 |
+| `flutter_inappwebview` | `^6.1.5`（pub 稳定版） | 日常开发 |
+| `flutter_inappwebview` 鸿蒙分支 | `br_v6.1.5_ohos`（TAG `6.1.5-ohos-1.0.0`） | 鸿蒙构建时按 `pubspec.yaml` 末尾注释替换 |
+| `flutter_inappwebview_windows` | `^0.6.0` | Windows 必须显式引入，见 2.3 |
+
+切鸿蒙时把 `flutter_inappwebview` 换成 CPF-Flutter 的 git 依赖，再执行
+`flutter clean && flutter pub get`。该 fork 保留 `android/` 与 `windows/` 目录，
+**一份依赖覆盖三端，不需要按平台拆依赖**（阶段 0 的这项验证已有结论）。
+`ohos/` 平台目录目前仍未生成。
 
 ### 3.2 依赖清单
+
+以下为**实际 `pubspec.yaml`**（2026-11-11）：
 
 ```yaml
 dependencies:
   flutter:
     sdk: flutter
-
-  # WebView —— 鸿蒙分支基于 6.1.5，理论上保留 android/ 与 windows/ 实现，
-  # 若成立则一份依赖覆盖三端；否则按平台拆依赖。阶段 0 验证。
-  flutter_inappwebview:
-    git:
-      url: https://gitcode.com/CPF-Flutter/flutter_inappwebview.git
-      path: flutter_inappwebview
-      ref: br_v6.1.5_ohos
-
-  # 网络与下载
+  flutter_riverpod: ^2.6.1
+  flutter_inappwebview: ^6.1.5
+  flutter_inappwebview_windows: ^0.6.0   # Windows 必需，见 2.3
   dio: ^5.7.0
-
-  # 状态管理
-  # flutter_riverpod 版本以 pub.dev 最新稳定版为准
-  flutter_riverpod: ^3.0.0
-
-  # FFmpeg（Android 侧）。鸿蒙侧走 @ohos/ffmpeg-kit，见 3.4
-  ffmpeg_kit_flutter_new: ^4.6.3
-
-  # 路径（鸿蒙有 CPF-Flutter 适配分支）
   path_provider: ^2.1.5
   path: ^1.9.0
-
-  # 纯 Dart 加密，用于 HLS AES-128 解密
-  pointycastle: ^3.9.1
-
-  # 权限（鸿蒙适配分支 CPF-Flutter/flutter_permission_handler）
-  permission_handler: ^12.0.1
-
-  # 文件导出
-  file_picker: ^10.3.8
+  crypto: ^3.0.6                          # 缓存 key / 文件名去重
+  pointycastle: ^3.9.1                   # HLS AES-128-CBC 解密
 
 dev_dependencies:
-  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
 ```
 
-**平台判定**：`Platform.isOhos` 由 Flutter-OH SDK 提供，官方 Flutter SDK 中不存在。所有平台分支代码必须用条件判断包裹，否则 Android 端编译会报错。
+**与早期草案的差异**：`flutter_riverpod` 用 2.6 线（不是 3.0）；
+`ffmpeg_kit_flutter_new`、`permission_handler`、`file_picker` **均未引入**——
+桌面转码调系统 ffmpeg 进程，Android 转码在 `android/app` 引原生 AAR 走
+`TranscodeEngine` 抽象（Dart 侧仍无 FFmpeg pub 包，见 3.4），
+桌面导出是纯 Dart 文件复制、Android 导出走 MediaStore `IS_PENDING`，
+两者都不需要权限与文件选择插件。
+`flutter_inappwebview` 日常用 pub 稳定版，git 写法只在鸿蒙构建时按文件末尾注释替换。
+
+**平台判定**：不使用 `Platform.isOhos`（Flutter-OH SDK 专属，官方 SDK 里编译不过）。
+实际按 `Platform.operatingSystem` 字符串分支，并带 `dart:io` 可用性兜底，
+见 `lib/core/platform/platform_info.dart`：
 
 ```dart
-// lib/core/platform/platform_info.dart
-import 'dart:io';
+enum AppPlatform { android, ohos, windows, macos, linux, other }
 
 class PlatformInfo {
-  static bool get isAndroid => Platform.isAndroid;
-
-  static bool get isOhos {
-    // Platform.isOhos 仅存在于 Flutter-OH SDK
-    try {
-      return Platform.operatingSystem == 'ohos';
-    } catch (_) {
-      return false;
+  static AppPlatform get current {
+    if (!_isDartIoAvailable) return AppPlatform.other;
+    switch (Platform.operatingSystem) {
+      case 'android': return AppPlatform.android;
+      case 'ohos':    return AppPlatform.ohos;
+      case 'windows': return AppPlatform.windows;
+      // macos / linux / other 同理
     }
+  }
+
+  static bool get isDesktop => ...;   // windows / macos / linux
+  static bool get isMobile  => ...;   // android / ohos
+  static bool get isWindowsDesktop => current == AppPlatform.windows;
+
+  static bool get _isDartIoAvailable {
+    try { Platform.operatingSystem; return true; } catch (_) { return false; }
   }
 }
 ```
+
+`current` 结果会缓存。所有平台分支统一走 `PlatformInfo`，功能层不直接写 `Platform.isXxx`；
+这样切到 Flutter-OH SDK 时不需要改业务代码。
 
 ### 3.3 状态管理
 
-使用 `flutter_riverpod`。
+使用 `flutter_riverpod` 2.6.1，但**实际用法是 4 个应用级 `ChangeNotifierProvider` 单例**，
+不是 `AsyncValue` / `autoDispose` / `select`。见 `lib/app/providers.dart`：
 
-**关于性能的澄清**：Riverpod 与 Provider 在相同订阅粒度下性能几乎无差异。选 Riverpod 的理由是工程性，不是性能：
+| Provider | 状态对象 | 说明 |
+| --- | --- | --- |
+| `snifferProvider` | `SnifferService` | 捕获列表 |
+| `downloadQueueProvider` | `DownloadQueue` | 依赖转码队列（DASH 合并）与资源池 |
+| `transcodeQueueProvider` | `TranscodeQueue` | 串行转换 |
+| `browserProvider` | `BrowserController` | 地址栏与 WebView 控制 |
 
-- `AsyncValue` 内置 loading / error / data 三态，下载、转换这类异步任务省去大量手写状态机
-- 不依赖 `BuildContext`，后台任务与跨页面状态天然安全
-- `autoDispose` 自动回收，资源列表这类随页面生灭的状态无需手动清理
-- 编译期能发现 provider 误用，而非运行时 assert
+四者都是 `ChangeNotifier` 子类，注册在 `ProviderScope` 顶层（见 `lib/main.dart`）。
+挂到页面里会在切页时 dispose，后台任务完成后的回调就找不到它们了。
+选 Riverpod 的理由是不依赖 `BuildContext`、应用级单例好管理、编译期能发现误用；
+**不是性能**。真正影响流畅度的是订阅粒度：
 
-**唯一影响流畅度的是订阅粒度，与框架无关。** 以下两条约束必须遵守：
-
-**约束一：高频进度不要走 provider 重建。**
-
-下载进度每 100ms 刷新一次。如果整个列表依赖同一个 state 对象，每次进度变化都会重建整屏。正确做法是让进度用 `ValueNotifier` 单独承载：
+**高频进度不要走 provider 重建。** 下载进度每 100ms 刷新，若整个列表依赖同一个 state，
+每次进度变化都会重建整屏。实际做法是让每个任务自带独立 notifier
+（`lib/features/downloader/domain/download_task.dart`）：
 
 ```dart
-class DownloadTask {
-  // 进度独立于 state，避免触发 provider 重建
-  final progress = ValueNotifier<double>(0);
-
-  void updateProgress(int received, int total) {
-    progress.value = total > 0 ? received / total : 0;
-  }
-}
+final ValueNotifier<double> progress = ValueNotifier<double>(0);
+final ValueNotifier<double> speed = ValueNotifier<double>(0);
+final ValueNotifier<DownloadStatus> statusNotifier = ...;
 ```
 
-列表项用 `ValueListenableBuilder` 订阅，只有那一行重绘：
+列表项用 `ListenableBuilder` 订阅合并后的 notifier，只有那一行重绘：
 
 ```dart
-ValueListenableBuilder<double>(
-  valueListenable: task.progress,
-  builder: (context, value, _) => LinearProgressIndicator(value: value),
+ListenableBuilder(
+  listenable: Listenable.merge(<Listenable>[
+    task.progress, task.speed, task.statusNotifier,
+  ]),
+  builder: (context, _) => /* 单行进度条 */,
 )
 ```
 
-provider 只在**任务增删**与**状态迁移**（pending→running→success）时更新，进度变化不触发。
-
-**约束二：需要精确订阅用 `select`。**
-
-```dart
-// 只关心任务数量，任务内容变化不重建
-final count = ref.watch(downloadQueueProvider.select((tasks) => tasks.length));
-```
-
-避免 `ref.watch(downloadQueueProvider)` 后取整个列表做计算，那会把无关字段的变化也当依赖。
+`DownloadQueue` 的 `notifyListeners()` 只在**任务增删与状态迁移**时调用
+（`_safeNotify`），进度变化不触发。`TranscodeJob` 用同样的 `progress` / `statusNotifier` 结构。
 
 ---
 
 ### 3.4 FFmpeg 方案
 
-**为什么必须引入**：mp3 是有损编码格式，系统侧无可用编码器（Android MediaCodec 有 MP3 解码器但无编码器），只有 FFmpeg 带 `libmp3lame`。既然 FFmpeg 必须进来，TS→mp4 的 remux 顺带解决，无需另写 `MediaExtractor`/`MediaMuxer` 原生代码。
+**桌面端不引任何 FFmpeg 包。** 早期草案假设「必须引入 `ffmpeg_kit_flutter_new`」，
+实际落地改成：桌面直接调本机 `ffmpeg` / `ffprobe` 进程
+（`lib/features/transcoder/data/system_ffmpeg_engine.dart`）。
+Android 侧「系统无 MP3 编码器，必须靠 FFmpeg `libmp3lame`」的判断成立，
+2026-11-12 起通过 **Android 原生 Maven AAR** 接入，见下表。
 
-#### 两端实现
+关键取舍：**没有用 Flutter pub 包 `ffmpeg_kit_flutter_new`**，而是在
+`android/app/build.gradle.kts` 里加原生依赖、由 `TranscodeBridge.kt` 实现已有的
+`sniffing_browser/transcoder` MethodChannel。理由：
 
-| 平台 | 方案 | 版本 | 说明 |
-| --- | --- | --- | --- |
-| Android | `ffmpeg_kit_flutter_new` | 4.6.x（FFmpeg 8.1.2） | 上游 `arthenica/ffmpeg-kit` 已于 2025 年停止维护，此为社区延续 fork，API 完全兼容 |
-| HarmonyOS | `@ohos/ffmpeg-kit` | 1.0.1（MIT） | 华为官方「优选三方库」，仓库 `gitcode.com/CPF-ApplicationTPC/ohos_ffmpeg_kit` |
-| Windows | `ffmpeg_kit_flutter_new` | 4.6.x | 同一包，提供 x86_64 预编译产物（MSYS2 构建）。**不支持 Windows ARM64** |
+- `pubspec.yaml` 不变，`pubspec.lock` 不变，桌面端的系统 ffmpeg 链路与 20 项 W1 回归不受影响；
+- 鸿蒙构建时不会因 pub 包缺 ohos 实现而失败（该包只支持 Android/iOS/macOS/Windows/Linux）；
+- 官方 `com.arthenica:ffmpeg-kit-*` 已于 2025-04-01 从 Maven Central 移除，
+  而 `ffmpeg_kit_flutter_new` 是 **Full GPL** 变体，自用工具也应避开 GPL 传染。
+  改用社区维护的 `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`
+  （LGPL-3.0、同 `com.arthenica.ffmpegkit` 包名与 API、FFmpeg 8.1.2、
+  SDK 35 / 16KB 对齐、含 `libmp3lame`）。
 
-鸿蒙侧的关键信息：该库 README 明确写明「作为 `ffmpeg_kit_flutter` 等上层框架的底层支撑层」，且编译依赖包含 **lame**、libogg、libvorbis、dav1d、openh264 等，mp3 编码能力齐备。验证环境为 DevEco Studio 6.0.0 Release + SDK API 20 + ROM 6.0.0.130。
+#### 三端实现状态
+
+| 平台 | 方案 | 状态 |
+| --- | --- | --- |
+| Windows | 系统 `ffmpeg` / `ffprobe` 进程（`Process.start`），不引 pub 包 | **已实现并端到端实测** |
+| Android | `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`（LGPL AAR）+ `TranscodeBridge.kt` MethodChannel | **已实现**，待 USB 真机验证 |
+| HarmonyOS | `@ohos/ffmpeg-kit` 1.0.1（华为优选三方库，含 lame）或同等 ArkTS 桥接 | 待接入，`ohos/` 目录尚未生成 |
+| Windows ARM64 | 取决于本机是否有对应架构的 ffmpeg 可执行文件 | 不单独适配 |
+
+**Android AAR 约束**：只发布 `arm64-v8a` / `x86_64`，`minSdk 24`。
+`android/app/build.gradle.kts` 已用 `ndk.abiFilters` 限制为这两个 ABI——
+否则 Flutter 会打出含 32 位 ABI 的 APK，装上后 `libffmpegkit.so` 缺失会直接崩。
+USB 真机若为 32 位设备需自行编译 AAR 或改用系统 API 方案。
+
+桌面 FFmpeg 查找顺序（`SystemFfmpegEngine.locateFfmpeg()`）：
+`SNIFF_FFMPEG_DIR` → 应用 exe 同目录（含 `bin/`、`ffmpeg/bin/`）→
+`~/.devtools/ffmpeg/bin/` → PATH。`ffmpeg` 与 `ffprobe` 都需要；
+缺 ffprobe 仍能转换，只是不显示进度百分比。安装脚本见 `README.md`。
 
 #### 常用命令
 
@@ -303,64 +362,84 @@ final count = ref.watch(downloadQueueProvider.select((tasks) => tasks.length));
 # TS → MP4：无损转封装，不重编码，秒级完成
 ffmpeg -i input.ts -c copy output.mp4
 
-# 任意音频 → MP3：重编码，有损
-ffmpeg -i input.m4a -c:a libmp3lame -b:a 192k output.mp3
+# 任意音频 → MP3：重编码，有损（-map 必须显式指定，见 5.8）
+ffmpeg -i input.m4a -vn -map 0:a:0 -c:a libmp3lame -b:a 192k output.mp3
 
-# 探测媒体信息（用于判断编码、时长、是否需要转封装）
+# DASH 音视频合并：纯流拷贝，刻意不加 -shortest（见 5.8）
+ffmpeg -i v.m4s -i a.m4s -map 0:v:0 -map 1:a:0 -c copy out.mp4
+
+# 探测媒体信息（取总时长算进度、判断编码）
 ffprobe -v quiet -print_format json -show_format -show_streams input.ts
 ```
 
-#### 依赖隔离问题
+#### 依赖隔离（已有结论）
 
-`ffmpeg_kit_flutter_new` 只声明 Android / iOS / macOS / Windows / Linux，不含 ohos。而 Dart 不支持按平台条件依赖。三种处理路径，按优先级：
+早期草案列的三条路径里，**已选第三条兜底**：Dart 侧只依赖一层 `TranscodeEngine`
+抽象，桌面用 `SystemFfmpegEngine`（纯 Dart `Process.start`），移动端用
+`NativeTranscodeEngine`（MethodChannel）。桌面根本不引 pub 包，因此
+「`ffmpeg_kit_flutter_new` 不含 ohos、Dart 无法按平台条件依赖」这个矛盾在当前架构下
+不存在。**阶段 4 的这项首要验证点已作废**。
 
-1. **首选**：确认 CPF-ApplicationTPC 组织下是否有同时包含 `android/` 与 `ohos/` 目录的 `ffmpeg_kit_flutter` fork。若有，一处 git 依赖双端通吃，最省事。
-2. **次选**：两套依赖并存，Android 构建时忽略 ohos 包、ohos 构建时忽略 Android 包，靠构建脚本切换 `pubspec.yaml`。
-3. **兜底**：Dart 侧只依赖一层自建的 `FfmpegRunner` 抽象（MethodChannel），原生侧各自调用对应库，Dart 包依赖用 `--no-ffmpeg` 之类的构建开关剥离。
-
-**这一项标注为阶段 4 的首要验证点**，因为它决定依赖管理方式，越早确认越好。
+2026-11-12 的实际落地印证了这层抽象的价值：Android 只在 **原生侧**加 AAR 与
+`TranscodeBridge.kt`，Dart 侧只改 `NativeTranscodeEngine` 的协议实现
+（挂起 result + 反向进度回调），`TranscodeQueue` / `TranscodeJob` / UI 队列逻辑一行未动。
 
 #### 执行约束
 
-- **必须串行**。华为官方文档明确：批量 FFmpeg 任务并行只会让每个都变慢，还可能触发内存压力。转换队列需保证同一时刻只有一个 session 在跑。
-- 转码是 CPU 密集型，禁止在主线程同步执行。`ffmpeg-kit` 的 session 本身是异步的，但不要在等待期间做轮询阻塞。
-- 每个 session 支持取消，转换队列需要基于 sessionId 实现「取消」按钮。
-- 转 mp4 用 `-c copy` 时，若源流编码不被 MP4 容器支持（如某些 AAC 变体、AC-3），需要回退到重编码。先跑 `ffprobe` 判断，避免直接失败。
+- **必须串行**。`TranscodeQueue` 用 `_isRunning` 布尔锁 + `_pump()` 一次取一个任务，
+  `finally` 里再 pump，保证同一时刻只有一路转码（见 `transcode_queue.dart`）。
+- 桌面是 `Process.start` 异步跑，Dart 侧监听 stderr / exitCode，不做轮询阻塞；
+  Android 是 FFmpegKit 的 `executeWithArgumentsAsync`，回调在工作线程。
+- **两端通道契约**：`startTranscode` 的 MethodChannel 回复**挂起**到任务结束才返回，
+  所以 Dart 侧 `await` 天然等于「等这一路跑完」；进度由原生通过同一 channel
+  反向调用 `onProgress` 推送。取消走 `cancelTranscode` → `FFmpegKit.cancel(sessionId)`；
+  桌面则是 `_cancelled` + `process.kill(ProcessSignal.sigkill)` 并删半成品。
+- 进度：桌面解析 stderr 的 `time=00:00:12.34`，总时长由 ffprobe 预取；
+  Android 用 `FFprobeKit.getMediaInformation()` 取时长、`Statistics.getTime()` 换算比例。
+  两端都遵循「解析失败只显示进行中，不阻断」。
+- `-c copy` 可能因源流编码不被 MP4 容器支持而失败，桌面会回退到只重编音频
+  （`-c:v copy -c:a aac`）；**Android 侧暂未实现该回退**，失败时直接给出 ffmpeg 的
+  错误行，属于已知差异（见第 9 节风险表）。
 
 ## 4. 系统架构
 
 ```mermaid
 flowchart TD
-    A[InAppWebView<br/>Android WebView / ArkWeb] -->|onLoadResource| B[嗅探器 Sniffer]
-    A -->|shouldInterceptRequest| C[请求头缓存 HeaderStore]
+    A[InAppWebView<br/>Android WebView / ArkWeb / WebView2] -->|onLoadResource 仅移动端| B[嗅探器 Sniffer]
+    A -->|shouldInterceptRequest 仅移动端| C[请求头缓存 HeaderStore]
+    A -->|CDP Network 事件 仅 Windows| B
+    A -->|CDP requestWillBeSent| C
     B --> D[资源分类器 Classifier]
     C --> D
     D --> E[资源列表 UI]
-    E -->|用户点击下载| F[下载调度器 DownloadQueue]
+    E -->|用户点击下载| F[下载调度器 DownloadQueue<br/>并发 3]
     F --> G[单文件下载器]
-    F --> H[HLS 下载器]
+    F --> H[HLS 下载器<br/>分片并发 6]
     H --> I[Playlist 解析]
     H --> J[分片并发下载]
     J --> K[AES-128 解密]
-    K --> L[拼接合并]
-    G --> M[存储层 私有目录]
+    K --> L[流式拼接合并]
+    G --> M[存储层 SniffingBrowser/downloads]
     L --> M
     M --> T[转换队列 TranscodeQueue<br/>串行执行]
-    T --> U[FFmpeg<br/>TS→MP4 / 音频→MP3]
-    U --> M
-    M --> V[导出器 Exporter]
-    V --> W[相册 Images / Video]
-    V --> X[音乐目录 Audio]
+    T --> U1[桌面 系统 ffmpeg 进程]
+    T --> U2[Android FFmpegKit AAR<br/>鸿蒙待实现]
+    U1 --> M
+    U2 --> M
+    M --> V[导出器 MediaExporter]
+    V -->|桌面 纯 Dart 复制| W1[用户下载目录]
+    V -->|Android MediaStore| W2[相册 / 音乐目录]
+    M --> L2[日志与诊断页]
 ```
 
 分层：
 
 | 层 | 职责 | 平台相关性 |
 | --- | --- | --- |
-| Presentation | 浏览器页、资源面板、下载列表 | 无 |
-| Domain | 媒体模型、分类规则、下载用例 | 无 |
-| Data | 下载器、解析器、存储仓储 | 部分 |
-| Platform | 权限、存储导出、路径 | 强 |
+| Presentation | 浏览器页、资源面板、下载列表、诊断页 | 无 |
+| Domain | 媒体模型、分类规则、下载 / 转换任务 | 无 |
+| Data | 下载器、解析器、HLS 子模块、转码引擎、日志 | 部分 |
+| Platform | 平台判定、存储路径、媒体导出 | 强 |
 
 ---
 
@@ -369,6 +448,9 @@ flowchart TD
 ### 5.1 嗅探层
 
 #### 双回调策略
+
+> **适用范围：仅 Android / HarmonyOS。** Windows 上 `onLoadResource` 不存在、
+> `shouldInterceptRequest` 会阻塞页面，实际走 CDP（见 2.3 与本节末尾的实现校准）。
 
 `flutter_inappwebview` 提供两个相关回调，用途不同，必须组合使用：
 
@@ -383,8 +465,16 @@ flowchart TD
 
 #### 实现骨架
 
+> 下面是**设计示意**，不是当前源码。实际接线在
+> `lib/features/browser/presentation/webview_host.dart`（`InAppWebViewSettings` 按
+> `useOnLoadResource: !_useCdp` / `useShouldInterceptRequest: !_useCdp` 切换，
+> `onPermissionRequest` 恒返回 DENY）；状态与去重在
+> `lib/features/sniffer/data/sniffer_service.dart`（`cacheRequestHeaders()`、`capture()`、
+> `headersFor()`、`_notifySoon()` 100ms 合批通知、`_headerCache` LRU 上限 600）。
+> Windows 的 CDP 通道在 `cdp_sniffer.dart`，两条原生回调在 `_useCdp` 时设为 `null`。
+
 ```dart
-// lib/features/sniffer/data/sniffer_service.dart
+// lib/features/sniffer/data/sniffer_service.dart（设计示意）
 class SnifferService {
   final Map<String, Map<String, String>> _headerCache = {};
   final _detected = <String, MediaItem>{};
@@ -429,32 +519,40 @@ class SnifferService {
 
 #### 请求头补全
 
-下载时按以下优先级构造 headers：
+下载时的请求头来源（**实际实现**，与早期草案的 `CookieManager` 方案不同）：
 
-1. `_headerCache` 中缓存的原始请求头
-2. WebView 的 Cookie：`CookieManager.instance().getCookies(url)`
-3. 兜底 `User-Agent`（与 WebView 设置的一致）
-4. 同源页面的 `Referer`
+1. 嗅探阶段缓存的原始请求头：移动端来自 `shouldInterceptRequest`，Windows 来自 CDP
+   `Network.requestWillBeSent`（`SnifferService.cacheRequestHeaders()`，LRU 上限 600）
+2. `pageUrl` 作为 `Referer` 兜底（`download_queue.dart`）
+3. 默认 `User-Agent` 兜底（`file_downloader.dart`，**按平台给**：移动端用移动 UA，
+   桌面用 Windows Chrome UA）
+4. **`CookieManager` 按请求 URL 现取 Cookie**（2026-11-13 接入，
+   `WebViewCookies.forUrl` → `FileDownloader._withCookies`）
 
-```dart
-Future<Map<String, String>> buildDownloadHeaders(MediaItem item) async {
-  final headers = <String, String>{...item.headers};
-  final cookies = await CookieManager.instance().getCookies(url: WebUri(item.url));
-  if (cookies.isNotEmpty) {
-    headers['Cookie'] = cookies.map((c) => '${c.name}=${c.value}').join('; ');
-  }
-  headers.putIfAbsent('User-Agent', () => _ua);
-  if (item.referer != null) headers.putIfAbsent('Referer', () => item.referer!);
-  return headers;
-}
-```
+第 4 条是被真机 403 逼出来的：Android 的 `WebResourceRequest.getRequestHeaders()`
+**不返回 Cookie** —— 那些是原生网络栈按 Cookie Jar 自己注入的，Dart 侧拿不到，
+于是嗅探缓存的头里永远缺这一段，下载 m3u8 / m4s 必然 403。
+
+实现要点：
+
+- 取 Cookie 的时机在**每个请求发出前**，不是入队时。HLS 的分片常换到 CDN 域名，
+  Cookie 必须按各自的 URL 查（`CookieManager.getCookies` 内部按域匹配，含 httpOnly）；
+- 与嗅探到的 `Cookie` 头**合并**，同名以嗅探到的那份为准（那是页面当时真实生效的值）；
+- 取 Cookie 失败只降级为「按原样发」，绝不阻断下载；
+- HLS 复用同一个 `FileDownloader`（`DownloadQueue` 构造时注入），避免出现
+  「playlist 拿得到、分片 403」这种两套策略的差异；
+- 403 时往日志写一条**实际发送的头名列表**（不含值），用来区分是缺 Referer
+  还是缺 Cookie。
+
+CDP 侧用 `_seenRequestIds` 去重，避免同一请求被重复缓存。桌面端不走第 4 条：
+CDP 的 `requestWillBeSent` 自带 Cookie。
 
 ### 5.2 资源分类
 
 MIME 和扩展名双重判断，MIME 优先但不完全可信（m3u8 的 MIME 可能是 `application/vnd.apple.mpegurl`、`application/x-mpegURL` 或 `text/plain`）。
 
 ```dart
-enum MediaType { image, audio, video, hls, dash }
+enum MediaType { image, audio, video, hls, dash, other }
 
 class MediaClassifier {
   static final _extMap = {
@@ -508,6 +606,40 @@ class MediaClassifier {
 - 可选：丢弃小于 1KB 的图片（通常是占位图、埋点像素）
 - 可选：按域名分组展示，避免同一 CDN 刷屏
 
+> 实际 `media_type.dart` 另有 `label`、`isStream`、`isDownloadable`、
+> `defaultExtension` getter，`other` 是未识别类型的兜底。
+> 另有第二道内容校验 `media_validator.dart`：站点把 404 兜底成首页时，
+> 嗅探层按 MIME 否决 `text/html`、下载层拒收 HTML/JSON 载荷、HLS 层校验 `#EXTM3U` 头。
+
+#### 5.2.1 列表缩略图（2026-11-13 新增）
+
+资源列表左侧 36×36 的位置原来固定是类型图标，现在图片和视频会换成真实缩略图，
+取不到图时**静默退回图标**（不转圈、不显示破图）。
+
+| 类型 | 取图方式 | 说明 |
+| --- | --- | --- |
+| image | 纯 Dart `HttpClient` 重新请求 + 解码降采样到 160px | 复用嗅探时缓存的 Referer / Cookie / UA，缺 Referer 时用 `item.pageUrl` 补 |
+| video（mp4 等直链） | Android：`MediaMetadataRetriever` 抽帧（通道 `sniffing_browser/thumbnailer`）；桌面：本机 ffmpeg `-frames:v 1` 输出 PNG 到管道 | 都只读必要字节，不下载整段视频 |
+| audio / hls / dash / other | 不做 | m3u8 要先下分片再解码，成本高；音频没有封面 |
+
+三条保护，都是被「一屏几十条资源」逼出来的：
+
+- **并发 3、排队上限 8**（`ThumbnailCache.maxConcurrent` / `maxQueued`）。
+  快速滚动时超出的请求这一轮直接跳过、且不记成失败，滚回来还能再试；
+- **单图 3 MB 上限、8 秒超时、失败结论也进缓存**。失败也缓存是为了
+  滚回原处不再重复打同一个 403；
+- **只放内存不落盘**。嗅探结果本身不持久化，重启后列表就空了，
+  为一批「下次一定用不上」的图写磁盘没有收益。
+
+刻意没做的：
+
+- 不显示 loading。列表里几十条同时转圈比没有缩略图更难看，加载期间就是类型图标；
+- 不做点击放大预览。列表只负责辨认「是不是我要的那条」，看大图是下载之后的事。
+
+已知限制：需要登录态且 Cookie 未随请求头带下来的站点会 403（退回图标）；
+Android 9+ 明文 `http://` 图片可能被系统的明文策略拦掉（同样退回图标）；
+鸿蒙侧没有原生抽帧实现，视频缩略图恒为图标，与导出/转码入口的处理一致。
+
 ### 5.3 单文件下载
 
 ```dart
@@ -529,16 +661,22 @@ class FileDownloader {
 }
 ```
 
-要点：
+**实际要点**（`lib/features/downloader/data/file_downloader.dart`）：
 
-- 支持 `Range` 断点续传，记录已下载字节数
-- 并发上限 3（自用场景，避免被 CDN 限流）
-- 失败重试 3 次，指数退避
-- 文件名从 URL 的 path 取，冲突时追加 `_1`、`_2`
+- 先写 `.part` 临时文件，成功后 `rename` 成目标文件，中断不污染目标文件
+- **单文件不支持字节级 Range 续传**；断点续传只在 HLS 分片级实现
+  （`.part` 已存在且非空就跳过，`#EXT-X-BYTERANGE` 用 `Range: bytes=start-end`）
+- 并发上限 3（`AppConstants.maxConcurrentDownloads`）
+- 失败共 3 次尝试（`retries = 2`），退避为 400 / 800 / 1200ms 的**线性递增**，不是指数
+- 文件名经 `StoragePaths.uniqueFile()` 消毒（Windows 非法字符 / 保留名 / 长度上限），
+  重名时追加 ` (1)`、` (2)`
 
 ### 5.4 HLS 下载
 
-这是整个项目最复杂的模块，拆成四步。
+这是整个项目最复杂的模块，拆成四步。实际代码落在
+`lib/features/downloader/data/hls/`：`m3u8_models.dart`（模型）、`m3u8_parser.dart`、
+`aes_decryptor.dart`、`segment_merger.dart`、`hls_downloader.dart`；
+`tools/verify_download.dart` 用真实 CDN 分片覆盖解析、并发、解密、合并共 12 项。
 
 #### 步骤一：解析 Playlist
 
@@ -647,8 +785,8 @@ class HlsDownloader {
     final tmpDir = await _createTempDir(item);
     final parts = <int, File>{};
 
-    // 并发下载，限流 4
-    final pool = Pool(4);
+    // 并发下载，限流 6（AppConstants.maxConcurrentSegments）
+    final pool = Pool(6);
     for (final seg in playlist.segments) {
       pool.withResource(() async {
         final bytes = await _fetchSegment(seg, item.headers, token);
@@ -706,6 +844,12 @@ Future<void> _merge(...) async {
 
 采用**两阶段**策略：下载一律先落到应用私有目录，下载完成后再由用户主动触发导出。这个顺序不只是设计偏好——鸿蒙 SaveButton 的授权窗口只有 10 秒（API ≤19）或 1 分钟（API 20+），官方文档明确要求「不要把网络下载放到获得授权之后才开始」。
 
+> **实现状态（2026-11-12 更新）**：桌面端纯 Dart 复制、Android
+> `MediaExporterHandler.kt`（MediaStore + `IS_PENDING`）均已落地可用；鸿蒙
+> `MediaExporter.ets` 仍未实现，`ohos/` 目录也尚未生成。
+> 下面 5.5.1 是 Android 的方案依据（实际代码以 Kotlin 文件为准），
+> 5.5.2 是鸿蒙的待实现方案。
+
 #### 阶段划分
 
 | 阶段 | 写入位置 | 失败影响 |
@@ -714,11 +858,15 @@ Future<void> _merge(...) async {
 | 下载完成 | 应用私有目录 | 文件中立可用，可通过「打开方式」预览 |
 | 用户导出 | 系统媒体库 / 音乐目录 | 导出失败可重试，源文件不受影响 |
 
-| 平台 | 临时目录 | 下载输出目录 |
+| 平台 | 临时目录 | 下载输出目录（实际 `StoragePaths`） |
 | --- | --- | --- |
-| Android | `getTemporaryDirectory()` | `getExternalStorageDirectory()/downloads/` |
-| HarmonyOS | `context.cacheDir` | `context.filesDir/downloads/` |
-| Windows | `getTemporaryDirectory()` | `getDownloadsDirectory()` |
+| Android | `<root>/tmp/<taskId>/` | `getExternalStorageDirectory()/SniffingBrowser/downloads/` |
+| HarmonyOS | 同上 | `getApplicationSupportDirectory()/SniffingBrowser/downloads/` |
+| Windows | 同上 | `下载/SniffingBrowser/downloads/` |
+
+桌面根目录取 `getDownloadsDirectory()`，取不到时退回
+`getApplicationDocumentsDirectory()`；每个 HLS 任务一个独立临时目录，失败时整目录删除。
+日志在同级的 `SniffingBrowser/logs/app.log`。
 
 #### 导出目标矩阵
 
@@ -737,10 +885,15 @@ TS 的处理见 5.5.4。
 
 #### 5.5.1 Android 实现
 
-API 29+ 使用 MediaStore 的 `IS_PENDING` 机制，**无需任何存储权限**：
+API 29+ 使用 MediaStore 的 `IS_PENDING` 机制，**无需任何存储权限**。
+实际实现文件名是 `MediaExporterHandler.kt`，在 `MainActivity.configureFlutterEngine()`
+里注册到 `sniffing_browser/media_exporter`。相比下面的示意代码，实际版还做了：
+按 `target` 分派 Images / Video / Audio / Downloads 四个集合、用
+`MimeTypeMap` 纠正 Dart 传来的非标准 mime、写入失败时删除 pending 条目、
+以及 API ≤ 28 的公共目录 + `MediaScannerConnection` 兜底。
 
 ```kotlin
-// android/app/src/main/kotlin/.../MediaExporter.kt
+// 方案示意，实际见 android/app/src/main/kotlin/.../MediaExporterHandler.kt
 fun exportToGallery(context: Context, srcFile: File, isVideo: Boolean): String? {
     val collection = if (isVideo) {
         MediaStore.Video.Media.EXTERNAL_CONTENT_URI
@@ -844,20 +997,72 @@ async function exportToGallery(
 
 #### 5.5.3 统一桥接接口
 
+实际 `lib/core/platform/media_exporter.dart` 是**静态工具类**，不是 abstract class：
+
 ```dart
-abstract class MediaExporter {
-  Future<ExportResult> exportToGallery(String localPath, MediaType type);
-  Future<ExportResult> exportToMusic(String localPath);
+class MediaExporter {
+  const MediaExporter._();
+  static const MethodChannel _channel =
+      MethodChannel('sniffing_browser/media_exporter');
+
+  static Future<ExportResult> export(String localPath, MediaType type);
+  static ExportTarget targetFor(MediaType type);
 }
 
-enum ExportResult { success, canceled, unsupportedFormat, failed }
+class ExportResult { /* ok / message / status */ }
+enum ExportTarget { gallery, music, file }
+enum ExportStatus { notExported, done, unsupported, notImplemented, failed }
 ```
 
-Dart 侧只依赖这个接口，`MethodChannel('sniffing_browser/exporter')` 分别由 Kotlin 与 ArkTS 实现。
+桌面端 `export()` 走 `_copyToDesktop()` 纯 Dart 复制；Android 调
+`invokeMethod('exportMedia')`，由 `MediaExporterHandler.kt` 返回
+`{status: done, uri: ...}` / `{status: failed, message: ...}`，Dart 侧映射成
+`ExportResult`。鸿蒙仍无原生实现，会走 `MissingPluginException` → `notImplemented`。
+MethodChannel 名是 `sniffing_browser/media_exporter`（早期草案写的
+`sniffing_browser/exporter` 不对）。
+
+同一个 channel 还有三个方法（2026-11-13）：
+
+| 方法 | 入参 | 行为 |
+| --- | --- | --- |
+| `openMedia` | `{uri}` | `Intent.ACTION_VIEW` + `FLAG_GRANT_READ_URI_PERMISSION` 拉起系统默认程序，返回布尔值表示 Intent 有没有发出去 |
+| `shareMedia` | `{path}` | `Intent.ACTION_SEND` + `EXTRA_STREAM` 拉起系统分享面板 |
+| — | — | 桌面端不需要原生：`openFile` 用 `start` / `open` / `xdg-open`，`shareFile` 直接返回 false（桌面没有系统级分享面板，UI 上也不展示该入口） |
+
+`openMedia` / `shareMedia` 都接受两种入参：媒体库的 `content://media/...`，
+以及下载目录里的**绝对路径**。后者要先换成 FileProvider 的 Uri ——
+Android 7+ 把 `file://` 交给外部应用会抛 `FileUriExposedException`，而私有目录的
+文件外部应用本来也读不到。所以 Android 侧新增了：
+
+- `res/xml/file_paths.xml`：声明 `files-path` 与 `external-files-path`（下载产物
+  落在 `files/SniffingBrowser` 和 `Android/data/<包名>/files/SniffingBrowser`，
+  两条都要覆盖）；
+- `AndroidManifest.xml` 的 `<provider android:name="androidx.core.content.FileProvider"
+  android:authorities="${applicationId}.fileprovider">`；
+- `toShareUri()`：绝对路径走 `FileProvider.getUriForFile()`，`content://` 原样透传；
+  `mimeOf()` 先问 ContentResolver，再按扩展名兜底。
+
+分享面板和 chooser 都带 `FLAG_GRANT_READ_URI_PERMISSION`，否则接收方拿不到读权限。
+
+#### 5.5.3a Android 转码桥接（2026-11-12 新增）
+
+`TranscodeBridge.kt` 注册 `sniffing_browser/transcoder`，三个方法：
+
+| 方法 | 行为 |
+| --- | --- |
+| `isAvailable` | 调 `FFmpegKitConfig.getFFmpegVersion()` 真正加载 native 库；缺 so 时返回 false，入口降级隐藏 |
+| `startTranscode` | 后台线程按 `kind` 拼参数数组 → `executeWithArgumentsAsync`；**result 挂到 complete callback 才回复** |
+| `cancelTranscode` | `FFmpegKit.cancel(sessionId)`，session 以 CANCEL 结束，Dart 侧抛 `TranscodeCancelled` |
+
+回复的 `status`：`done` / `canceled` / `unsupported`（无音轨）/ `failed`（带 ffmpeg 错误行）。
+进度走同 channel 反向的 `onProgress`。Dart 侧契约见
+`lib/features/transcoder/data/transcode_engine.dart` 的 `NativeTranscodeEngine`；
+`TranscodeCancelled` 已上移到该抽象层，`system_ffmpeg_engine.dart` re-export 保持兼容。
 
 #### 5.5.4 TS 文件的处理
 
-相册不接受 `.ts` 容器。因为 FFmpeg 已是项目硬依赖（见 3.4），直接用 remux 解决，不再需要「降级存文件目录」这种妥协方案：
+相册不接受 `.ts` 容器。桌面用系统 ffmpeg、Android 用原生 FFmpegKit（见 3.4），
+都走同一条 remux 链路；鸿蒙尚未接入，该端仍不可用：
 
 ```
 下载完成 → 得到 .ts
@@ -882,15 +1087,32 @@ bool isFmp4(M3u8MediaPlaylist playlist) =>
 ### 5.6 下载队列
 
 ```
-pending → running → success
-                 ↘ failed (可重试)
-                 ↘ canceled
+pending → running → completed
+        ↘ paused
+        ↘ failed (可重试)
+        ↘ canceled
 ```
 
-- 全局最多 3 个任务并发（同一 m3u8 内部再开 4 个分片）
-- 任务持久化到本地 JSON，App 重启后可恢复
-- 进度通过每个任务独立的 `ValueNotifier` 推给 UI，队列级 notifier 只在任务增删与状态迁移时通知
-- m3u8 任务记录已完成的分片序号，支持断点续传
+实际状态枚举见 `download_status.dart`（含 `paused` 与 `completed`；
+早期草案写的 `success` 不是实际值）。
+
+- 全局最多 3 个任务并发，同一 m3u8 内部开 **6** 个分片
+  （`AppConstants.maxConcurrentDownloads` / `maxConcurrentSegments`）
+- **任务记录已持久化**（`DownloadStore`，`download_tasks.json`，2026-11-12）：
+  只存「任务是什么、停在哪一步」，不存进度百分比。**位置必须是应用私有 files
+  目录，不能用 cache 目录** —— Android 的 `cache` 会在存储紧张时被系统静默清掉，
+  用户也能一键「清除缓存」，那份记录等于没持久化
+- 重启恢复规则：`completed` 校验产物是否还在（不在就标失败）；其余未完成状态
+  **一律标成「应用重启，下载已中断，可重试」，不自动重跑** —— 下载地址（m3u8 /
+  m4s）多半带签名，隔一段时间就过期，自动跑只会刷一屏 403，还可能在移动网络下
+  白耗流量。用户点重试时任务 id 不变，HLS 的 `tmp/<taskId>/seg_*.part` 还在，
+  所以那是真正的分片级续传
+- 进度通过任务独立的 `progress` / `speed` / `statusNotifier` 推给 UI
+  （`ListenableBuilder` + `Listenable.merge`），队列级 `notifyListeners()` 只在任务增删与状态迁移时调用
+- HLS 任务按分片序号记录完成情况，`.part` 存在且非空就跳过，实现分片级续传
+- 单文件下载不支持字节级续传：先写 `.part` 再 rename，失败由 dio 的
+  `deleteOnError` 清掉，所以中断不会留下半截文件（代价是重下）
+- DASH 的 `.mpd` 任务直接抛「暂不支持 DASH 分片重组」；嗅探到的 `.m4s` 分片走 5.8 的配对合并
 
 ### 5.7 转换队列
 
@@ -909,36 +1131,32 @@ pending → running → success
 **必须串行。** 同一时刻只允许一个 FFmpeg session 运行——并行只会让每个都变慢，还可能触发内存压力。队列本身是 FIFO，一次取一个。
 
 ```dart
+// 示意，实际见 lib/features/transcoder/data/transcode_queue.dart
 class TranscodeQueue {
-  bool _running = false;
+  bool _isRunning = false;
 
-  Future<void> _drain() async {
-    if (_running) return;
-    _running = true;
+  Future<void> _pump() async {
+    if (_isRunning) return;
+    final TranscodeJob? job = _nextPending();
+    if (job == null) return;
+    _isRunning = true;
     try {
-      while (_pending.isNotEmpty) {
-        final job = _pending.removeAt(0);
-        await _runOne(job);   // await 保证串行
-      }
+      await _defaultEngine().run(job);   // await 保证串行
     } finally {
-      _running = false;
+      _isRunning = false;
+      _pump();                          // 继续取下一个
     }
   }
 
-  Future<void> _runOne(TranscodeJob job) async {
-    final session = await FFmpegKit.executeAsync(
-      job.command,
-      (session) async {
-        final rc = await session.getReturnCode();
-        job.finish(ReturnCode.isSuccess(rc));
-      },
-      null,
-      (log) => job.appendLog(log.getMessage()),
-    );
-    job.sessionId = session.getSessionId();
-  }
+  TranscodeEngine _defaultEngine() => PlatformInfo.isDesktop
+      ? SystemFfmpegEngine()            // Process.start 本机 ffmpeg
+      : NativeTranscodeEngine();        // Android 原生 FFmpegKit；鸿蒙无实现
 }
 ```
+
+`TranscodeEngine.run()` 由桌面实现负责 `Process.start`、stderr 进度解析、
+`process.kill(sigkill)` 取消与 `ffprobe` 取时长；**没有 `FFmpegKit.executeAsync`
+与 sessionId**。
 
 #### 关键设计
 
@@ -952,22 +1170,84 @@ class TranscodeQueue {
 final _timePattern = RegExp(r'time=(\d+):(\d+):(\d+)\.(\d+)');
 ```
 
-**取消要真正中断进程。** 调 `FFmpegKit.cancel(sessionId)`，不是只把 UI 状态标记为取消。
+**取消要真正中断进程。** 桌面置 `_cancelled` 并 `process.kill(ProcessSignal.sigkill)`，
+同时删掉半成品；不是只把 UI 状态标记为取消，也不是 `FFmpegKit.cancel(sessionId)`。
 
 **`-c copy` 可能失败。** 若源流编码不被 MP4 容器支持（AC-3、部分 AAC 变体），remux 会报错。处理方式：先 `ffprobe` 检查音频编码，不在白名单内则改用 `-c:v copy -c:a aac`（只重编音频，比全量重编码快得多）。
 
+#### 产物落点（移动端必须入库）
+
+| 平台 | 产物落点 | 用户怎么找到 |
+| --- | --- | --- |
+| Windows / macOS / Linux | `下载/SniffingBrowser/` | 文件管理器直接可见 |
+| Android | 先写 `Android/data/<包名>/files/SniffingBrowser/downloads/`，成功后**自动复制一份进 MediaStore** | 音乐 / 视频 / 相册 App，目录 `Music｜Movies｜Pictures/SniffingBrowser` |
+
+Android 11+ 的文件管理器不允许浏览 `Android/data`，系统媒体库也不会扫描那里。
+所以「转换完成」如果没有入库这一步，用户在系统里**根本找不到产物**
+（2026-11-12 真机实测踩到：MP4 是因为手动点了「保存到相册」才可见；
+MP3 没有对应的手动入口，永远停在私有目录，界面上只写「已转换为 MP3」）。
+
+因此 `TranscodeQueue` 在任务成功后、标记 `completed` 之前调用
+`MediaExporter.export()` 入库一份，把结果写进 `TranscodeJob.exportMessage` /
+`exported`，列表直接显示「已转为 MP3，已保存到「音乐/SniffingBrowser」」。
+约束：
+
+- 只在 Android 生效（`PlatformInfo.current == AppPlatform.android`）；桌面产物本来就在下载目录，再复制一次没有意义。
+- DASH 合并（`replaceSource: true`）不入库：成品覆盖回下载任务持有的路径，走下载项的导出入口。
+- 入库失败**不把转换判成失败**：产物本身是好的，只把原因显示出来。
+- 入库是**复制**不是移动：私有目录那份保留，入库失败时用户仍有原始产物。
+
 #### UI 交互
 
-不做独立页面。转换是下载列表项上的操作：
+**触发入口在下载项上**，**进度与列表在独立的「转换」页**（2026-11-12 调整，
+见 `.agents/logs/changes/20261112/transcode-page.md`）。
+
+下载项菜单：
 
 - 下载完成且是 `.ts` → 显示「转为 MP4」
 - 下载完成、源的音频非 mp3、且确认带音轨（含合并后的 mp4）→ 显示「转为 MP3」
 - 合并进行中不显示任何转换入口（源文件马上会被覆盖）
-- 支持长按多选 → 批量加入转换队列
-- 转换中显示进度条与取消按钮
-- 转换完成 → 原条目旁出现新条目，或原地更新文件名
+- 点完「转为 MP3」后该项即从菜单消失（防重复入队），所以必须同时给出去处：
+  SnackBar 带「查看进度」直达转换页
 
-这样用户不需要离开列表就能完成全部操作，也避免了「文件在哪个页面」的认知负担。
+转换页（`transcode_page.dart`，入口在下载页 AppBar，带进行中角标）：
+
+- 逐条列出：源文件名、转换类型 + 状态、进度条
+- 进行中 → 取消；已结束 → 重试 / 移除记录；AppBar 可「清空已完成」
+- 完成态直接写落点：移动端显示「已保存到「音乐/SniffingBrowser」」，
+  桌面显示产物文件名
+- 已完成 → 菜单里的「打开」，交给系统播放器（`MediaExporter.openFile`）
+
+为什么原来只在下载项里挂一行小字不够：转换任务靠 `sourceTaskId` 关联下载记录，
+在下载页点「清空已完成」或对那条点「移除记录」后，进度就**再也看不见**了
+（任务其实还在队列里跑）。独立页面把两者解耦。
+
+「打开」不能直接用 `outputPath`：Android 上的产物先落在应用私有目录，
+那份文件外部应用无权读取，只有入库后拿到的 `content://` URI 配上
+`FLAG_GRANT_READ_URI_PERMISSION` 才交得出去。所以入库成功时把 URI 记进
+`TranscodeJob.mediaUri`（随任务一起落盘，重启后历史任务照样能打开），
+桌面没有入库这一步，退回用 `artifactPath` 交给系统默认程序。
+
+#### 任务持久化
+
+`transcode_jobs.json` 写在应用私有根目录（`TranscodeStore`），重启后仍能看到历史。
+落盘时机是入队、状态变更、移除与清空，**不存进度百分比**——进度每秒变几次，
+既没意义也磨损闪存。恢复规则：
+
+| 落盘状态 | 重启后 |
+| --- | --- |
+| `pending` | 重新排队继续跑 |
+| `running` | 标成「应用重启，转换已中断，可重试」。ffmpeg 进程已随应用死掉，不能假装还在跑 |
+| `completed` / `failed` / `canceled` | 原样展示，历史可回溯 |
+
+最多保留 100 条。写文件走「临时文件 + rename」，写到一半被杀不会留下半个 JSON。
+
+下载记录走同一套机制（`DownloadStore` → `download_tasks.json`，2026-11-12），
+差别有两处：一是**未完成的不自动重跑**（下载地址会过期，见 5.6），二是
+`completed` 恢复时要 stat 一次产物，文件已被清掉就标成「文件已被删除」——
+列表上写着「已完成」却导不出来是最难解释的状态。下载记录最多保留 200 条。
+
+这样用户不需要离开列表就能发起操作，也仍有全局视图可查——两者分开负责。
 
 ### 5.8 DASH 音视频配对与合并
 
@@ -1076,173 +1356,472 @@ ffprobe 只有 1 条 h264 流，抽音轨直接报 `Output file does not contain
 
 ## 6. 数据模型
 
+以下按 2026-11-11 实际代码列出，**字段名以源码为准**。早期草案的 `title`、
+`referer`、`detectedAt`、`headers`、`localPath`、`segmentTotal`、`exportedUri`、
+`TranscodeType`、`sessionId` 都不存在。
+
 ```dart
+// lib/features/sniffer/domain/media_item.dart（const 不可变类 + copyWith）
 class MediaItem {
-  final String id;          // url 的 hash
+  final String id;                            // URL 短 MD5（HashUtil.md5Short）
   final String url;
   final MediaType type;
-  final String? mimeType;
+  final DateTime firstSeenAt;
+  final String? pageUrl;                      // 兼作下载时的 Referer 兜底
+  final String? fileName;
   final int? contentLength;
-  final String? title;      // 从页面提取
-  final String? referer;
-  final String pageUrl;
-  final DateTime detectedAt;
-  Map<String, String> headers;
-  String? localPath;
+  final String? mimeType;
+  final Map<String, String> requestHeaders;   // final，来自嗅探阶段缓存
+  final String? label;
+  String get displayName => ...;
 }
-```
 
-`id` 用 URL 的 MD5，保证同一资源不重复入列。
-
-```dart
+// lib/features/downloader/domain/download_task.dart
 class DownloadTask {
-  final String id;
-  final String mediaId;
-  final String url;
+  final String id, mediaId, url, fileName;
   final MediaType type;
-  DownloadStatus status;
-  int receivedBytes;
-  int? totalBytes;
-  int segmentDone;      // HLS 专用
-  int? segmentTotal;
-  String? error;
   final DateTime createdAt;
-
-  // 导出状态与下载状态独立：下载成功不等于已进相册
+  final String? pageUrl;
+  final Map<String, String> headers;
+  final bool isStream;
+  final int? totalSegments;
+  DownloadStatus status;                      // pending/running/paused/completed/failed/canceled
+  final String? pairedTaskId;                 // DASH 配对任务
+  final bool isCompanion;                     // 伴随音频轨，不在 UI 展示
+  bool? mergedAudio;                          // 三态：true 已合并 / false 纯视频轨 / null 未探测
+  int receivedBytes, segmentDone;
+  int? totalBytes;
+  String? error, savedPath, container;
+  bool needsRemux;
   ExportStatus exportStatus;
-  String? exportedUri;  // 导出成功后系统返回的 uri
+  final ValueNotifier<double> progress, speed;
+  final ValueNotifier<DownloadStatus> statusNotifier;
 }
 
-enum ExportStatus { none, exporting, done, failed, unsupported }
-
-enum TranscodeType { tsToMp4, audioToMp3 }
+// lib/features/transcoder/domain/transcode_job.dart
+enum TranscodeKind { tsToMp4, audioToMp3, dashMerge }
+enum TranscodeStatus { pending, running, completed, failed, canceled }
 
 class TranscodeJob {
-  final String id;
-  final String sourcePath;
-  final String outputPath;
-  final TranscodeType type;
-  TranscodeStatus status;
-  final progress = ValueNotifier<double>(0);
-  int? sessionId;        // FFmpeg session id，用于取消
+  final String id, sourcePath, outputPath;
+  final DateTime createdAt;
+  final TranscodeKind kind;
+  final String? secondarySourcePath;          // 仅 dashMerge 用
+  final String? sourceTaskId, displayName;
+  final bool replaceSource;                   // 合并成功后覆盖源视频轨
+  final void Function(TranscodeStatus status)? onFinished;
+  final ValueNotifier<double> progress;
+  final ValueNotifier<TranscodeStatus> statusNotifier;
   String? error;
-
-  String get command => switch (type) {
-        TranscodeType.tsToMp4 =>
-          '-i "$sourcePath" -c copy -y "$outputPath"',
-        TranscodeType.audioToMp3 =>
-          '-i "$sourcePath" -vn -c:a libmp3lame -b:a 192k -y "$outputPath"',
-      };
+  String? exportMessage;                      // 移动端入库结论，桌面为 null
+  bool exported;                              // 产物是否真的进了系统媒体库
 }
 
-enum TranscodeStatus { pending, running, success, failed, canceled }
+// lib/features/downloader/data/hls/m3u8_models.dart
+class M3u8Playlist {
+  final Uri baseUri;
+  final List<M3u8Variant> variants;
+  final List<M3u8Segment> segments;
+  final int mediaSequence;
+  final bool isEndList, isFmp4;
+  final String? initSegmentUrl;
+  final double? targetDuration;
+  bool get isMaster => variants.isNotEmpty;
+  String get containerExtension => isFmp4 ? 'mp4' : 'ts';
+}
 
 class M3u8Segment {
   final Uri uri;
-  final int sequence;
+  final int sequence;                         // AES-128 未给 IV 时用它构造
+  final double duration;
   final M3u8Key? key;
-  final int? byteRange;
+  final M3u8ByteRange? byteRange;
+  final bool discontinuity;
 }
 
 class M3u8Key {
-  final String method;   // NONE / AES-128
+  final String method;                        // NONE / AES-128 / SAMPLE-AES
   final Uri? uri;
-  final Uint8List? iv;
+  final List<int>? iv;
+  final String? keyFormat;
 }
+
+class M3u8ByteRange { final int length; final int? offset; }
 ```
+
+`ExportStatus`（`media_exporter.dart`）实际为
+`{ notExported, done, unsupported, notImplemented, failed }`；
+`ExportResult` 是 class 而非 enum，另有 `ExportTarget { gallery, music, file }`。
 
 ---
 
 ## 7. 目录结构
 
+以下为**实际目录**（2026-11-11）。早期草案里的 `lib/app.dart`、
+`sniffer/providers/`、`downloader/providers/`、`transcode/`、`library/`、`shared/`
+都不存在；实际是 `lib/app/` 与 `lib/features/transcoder/`，且没有 library 页面。
+
 ```
 sniffing-browser/
-├── android/                        # Android 平台工程
-├── ohos/                           # 鸿蒙平台工程（flutter create --platforms ohos . 生成）
-├── windows/                        # Windows 平台工程
+├── android/app/src/main/kotlin/com/sniffing/sniffing_browser/
+│   ├── MainActivity.kt             # 注册两个 MethodChannel
+│   ├── MediaExporterHandler.kt     # MediaStore 导出（IS_PENDING）
+│   └── TranscodeBridge.kt          # FFmpegKit 转码、进度、取消
+├── windows/                        # Windows 平台工程（含崩溃 dump）
+├── ohos/                           # 【尚未生成】需 Flutter-OH SDK + DevEco Studio
 ├── docs/
-│   └── tech-design.md
+│   └── tech-design.md              # 本文
 ├── lib/
-│   ├── main.dart
-│   ├── app.dart
+│   ├── main.dart                   # runZonedGuarded + AppLog.install + StoragePaths.init
+│   ├── app/
+│   │   ├── app.dart                # SniffingBrowserApp
+│   │   └── providers.dart          # 4 个应用级 ChangeNotifierProvider 单例
 │   ├── core/
-│   │   ├── constants/
-│   │   │   └── app_constants.dart
+│   │   ├── constants/app_constants.dart
+│   │   ├── logging/app_log.dart    # AppLog + logXxx + bump 计数器
 │   │   ├── platform/
-│   │   │   ├── platform_info.dart
+│   │   │   ├── platform_info.dart  # AppPlatform 枚举 + 平台判定
 │   │   │   ├── storage_paths.dart
-│   │   │   └── media_exporter.dart      # MethodChannel 封装，导出到相册/音乐目录
-│   │   └── utils/
-│   │       ├── hash_util.dart
-│   │       └── format_util.dart
-│   ├── features/
-│   │   ├── browser/
-│   │   │   ├── presentation/
-│   │   │   │   ├── browser_page.dart
-│   │   │   │   ├── address_bar.dart
-│   │   │   │   └── webview_host.dart
-│   │   │   └── providers/
-│   │   │       └── browser_provider.dart
-│   │   ├── sniffer/
-│   │   │   ├── domain/
-│   │   │   │   ├── media_item.dart
-│   │   │   │   ├── media_type.dart
-│   │   │   │   └── media_classifier.dart
-│   │   │   ├── data/
-│   │   │   │   └── sniffer_service.dart
-│   │   │   ├── presentation/
-│   │   │   │   ├── resource_panel.dart
-│   │   │   │   └── resource_tile.dart
-│   │   │   └── providers/
-│   │   │       └── sniffer_provider.dart
-│   │   ├── downloader/
-│   │   │   ├── domain/
-│   │   │   │   ├── download_task.dart
-│   │   │   │   ├── download_status.dart
-│   │   │   │   └── dash_pair.dart          # DASH 音视频轨配对
-│   │   │   ├── data/
-│   │   │   │   ├── download_queue.dart
-│   │   │   │   ├── file_downloader.dart
-│   │   │   │   ├── media_validator.dart    # 按内容拒收伪装成媒体的网页
-│   │   │   │   └── hls/
-│   │   │   │       ├── hls_downloader.dart
-│   │   │   │       ├── m3u8_parser.dart
-│   │   │   │       ├── m3u8_models.dart
-│   │   │   │       ├── aes_decryptor.dart
-│   │   │   │       └── segment_merger.dart
-│   │   │   ├── presentation/
-│   │   │   │   ├── download_page.dart
-│   │   │   │   └── download_tile.dart
-│   │   │   └── providers/
-│   │   │       └── download_provider.dart
-│   │   ├── transcode/
-│   │   │   ├── domain/
-│   │   │   │   └── transcode_job.dart
-│   │   │   ├── data/
-│   │   │   │   ├── transcode_queue.dart      # 串行执行
-│   │   │   │   └── ffmpeg_runner.dart        # FFmpeg 封装与日志解析
-│   │   │   └── providers/
-│   │   │       └── transcode_provider.dart
-│   │   └── library/
-│   │       └── presentation/
-│   │           └── library_page.dart
-│   └── shared/
-│       └── widgets/
-├── test/
+│   │   │   └── media_exporter.dart # 静态工具类，桌面纯 Dart 复制
+│   │   └── utils/{hash_util,format_util,json_file,serial_gate}.dart
+│   └── features/
+│       ├── browser/
+│       │   ├── domain/{history_entry,bookmark_entry}.dart
+│       │   ├── data/{history_store,history_service,
+│       │   │         bookmark_store,bookmark_service}.dart
+│       │   ├── providers/{browser_provider,browser_tab,tab_manager}.dart
+│       │   └── presentation/{browser_page,browser_header,address_bar,
+│       │                     webview_host,home_page,tab_switcher,
+│       │                     history_page,bookmark_page,empty_hint}.dart
+│       ├── sniffer/
+│       │   ├── domain/{media_item,media_type,media_classifier}.dart
+│       │   ├── data/{sniffer_service,cdp_sniffer,
+│       │   │         thumbnail_cache,thumbnail_service}.dart
+│       │   └── presentation/{resource_panel,resource_tile,
+│       │                     sniff_fab,fab_position}.dart
+│       ├── downloader/
+│       │   ├── domain/{download_task,download_status,dash_pair}.dart
+│       │   ├── data/
+│       │   │   ├── {download_queue,download_store,file_downloader,media_validator}.dart
+│       │   │   └── hls/{hls_downloader,m3u8_parser,m3u8_models,
+│       │   │           aes_decryptor,segment_merger}.dart
+│       │   └── presentation/{download_page,download_tile}.dart
+│       ├── transcoder/
+│       │   ├── domain/transcode_job.dart
+│       │   ├── data/{transcode_queue,transcode_engine,transcode_store,
+│       │   │         system_ffmpeg_engine}.dart
+│       │   │                        # NativeTranscodeEngine 在 transcode_engine.dart
+│       │   └── presentation/transcode_page.dart
+│       └── diagnostics/
+│           └── presentation/diagnostics_page.dart
+├── tools/verify_download.dart      # 下载链路端到端验证（12 项，真实 CDN 分片）
+├── test/                           # 11 个测试文件，见 README
 └── pubspec.yaml
 ```
+
+`test/` 下：`media_test.dart`（单元）、`browser_provider_test.dart`（首页与搜索引擎）、
+`download_validation_test.dart`、
+`dash_merge_test.dart`、`dash_merge_ffmpeg_test.dart`（真实 ffmpeg，缺了自动跳过）、
+`native_transcode_engine_test.dart`（原生转码协议）、
+`transcode_library_export_test.dart`（产物入库）、
+`transcode_store_test.dart`（持久化与重启恢复）、
+`download_store_test.dart`（下载记录持久化与重启恢复）、
+`download_queue_e2e_test.dart` 与 `transcode_e2e_test.dart`（需 `RUN_E2E=1`）。
+`tools/verify_download.dart` 独立 `dart run`，不需要 `RUN_E2E`。
 
 ---
 
 ## 8. 实施阶段
 
+### 8.0 本期范围与验收口径（2026-11-11 定）
+
+> 本节是本期唯一的范围依据。与下面保留的原始阶段划分冲突时，以本节为准。
+
+**本期目标**：Android 真机最小验证 —— 确认移动端 `onLoadResource` +
+`shouldInterceptRequest` 双回调嗅探真能抓到资源，并走通「入队 → 下载 → 落盘」链路。
+交付物是**一份真机验收记录 + 必要的嗅探修复**，不是可分发安装包。
+
+**端优先级**：Windows（已实测，本期只做回归、不回退）→ Android（本期主攻）
+→ HarmonyOS NEXT（暂缓，`ohos/` 不生成、Flutter-OH SDK 不配置）。
+
+**本期不做（2026-11-12 修订）**：鸿蒙平台工程、DASH MPD 重组、
+桌面打包分发、阶段 7 打磨项。
+
+> 资源缩略图原在本期不做清单里，2026-11-13 按需求补上（图片 + 视频首帧），
+> 实现与保护策略见 5.2.1；音频 / HLS / DASH 仍用类型图标。
+
+> **范围变更**：原口径是「移动端原生导出、移动端 FFmpeg 一并不做，A 用例全绿才启动」。
+> 用户在 Android USB 真机上明确提出要用这两个功能，2026-11-12 提前启动并已实现 Android 侧
+> （见 3.4 / 5.5.3a）。鸿蒙侧仍不做。A1 / A3~A6 的验收状态不因这次变更而改变。
+> 未实现的能力（鸿蒙）一律不保留可点入口。
+
+#### 验收用例（逐条可判，任一 A 用例失败即本期不通过）
+
+| 编号 | 用例 | 通过条件 |
+| --- | --- | --- |
+| A1 | debug 包启动显示自写首页，再输入网址打开普通图文页 | 首页正常显示、无闪退；首次导航后页面渲染完成，诊断页 `webview.loadStop` > 0 |
+| A2 | 双回调在 Android WebView 上确实触发 | `sniffer.onLoadResource` 与 `sniffer.shouldIntercept` 均 > 0；任一为 0 即判定该通道不可用，先定位原生侧，不绕过 |
+| A3 | 分类器产出可见条目 | `sniffer.captured` > 0，资源面板列出图片且 URL / 大小可读 |
+| A4 | 视频页捕获与误收防护 | 捕获到 m3u8 或 mp4；站点把 404 兜底成 `200 + text/html` 时不被收进列表 |
+| A5 | 一键入队 → 下载完成 | 任务状态 `completed`，产物落在 `SniffingBrowser/downloads/`，文件可打开且大小 > 0 |
+| A6 | 请求头补全生效 | 嗅探时缓存的 Referer / UA 被带上，资源不返回 403；失败时日志给出明确原因 |
+| W1 | Windows 回归 | `tools/verify_download.dart` 12 项、`RUN_E2E=1` 的 `download_queue_e2e_test.dart` / `transcode_e2e_test.dart` 全绿 |
+
+**顶栏布局（2026-11-13 起）**：顶栏自绘，不再用 AppBar，分两层 ——
+
+- 第一层：后退 / 前进 / 地址栏 / 刷新（加载中变「停止」，调 `stopLoading`），
+  地址栏左侧按 `https` 显示锁图标；
+- 第二层：左侧搜索引擎下拉，右侧「页签 / 下载 / 诊断」三个入口，
+  页签显示总数、下载带进行中数量胶囊，数量 > 0 时图标转为主题色。
+
+原来一层的 52px AppBar 里塞了地址栏 + 引擎下拉 + 下载 + 诊断，地址栏被挤到
+一半宽度，功能按钮还要和标题抢位置，所以拆成两层（`browser_header.dart`）。
+布局回归由 `test/browser_header_test.dart` 兜住（含 320 宽窄屏不溢出）。
+
+**多页签（2026-11-13 起）**：浏览器层从「单 WebView + 全局一份嗅探结果」
+改成「每页签一份状态」。两个类分工：
+
+- `BrowserTab`（`providers/browser_tab.dart`）：一个逻辑页签，持有自己的
+  `BrowserController`（URL / 标题 / 前进后退 / 加载态）和一个独立的
+  `SnifferService`；
+- `TabManager`（`providers/tab_manager.dart`）：页签集合 + 当前活跃页签，
+  同时是顶栏、地址栏、首页读状态的统一入口（`tabManagerProvider`）。
+
+**存活策略**：原生 WebView 一个实例约 50~100MB，不可能每个页签都留一个。
+
+| 概念 | 含义 | 上限 |
+| --- | --- | --- |
+| 页签（`tabs`） | 逻辑单位，只存 URL / 标题 / 嗅探结果 | `maxTabs = 20` |
+| 存活页签（`liveTabs`） | 真正持有原生 WebView 的那几个，`IndexedStack` 的子节点 | `maxLive = 4` |
+
+超出 `maxLive` 时按 `lastActive` 淘汰最久没被看过的那个：**页签不删**，
+把当前地址记进 `pendingUrl`、`BrowserController.detach()` 解绑原生控制器，
+切回去时用 `pendingUrl` 重建 WebView。代价是切回已回收的页签要重新加载
+（滚动位置和播放进度会丢），换来的是内存不至于失控。
+
+`IndexedStack` 的子节点顺序必须稳定（按 `_live` 的插入顺序），不能按活跃时间
+重排 —— 否则每次切换 key 都对调，WebView 全部重建，就失去多页签的意义了。
+
+**嗅探结果按页签隔离**：`snifferProvider` 返回 `TabManager.activeSniffer`，
+所以资源面板、FAB 角标、下载配对的取数都自动跟着当前页签走。它是普通
+`Provider` 而不是 `ChangeNotifierProvider`：返回值归页签所有，不能让 provider
+负责销毁（切页签时 provider 重建，页签却还活着）。需要跟随资源列表刷新的两处
+（资源面板、FAB 角标）用 `ListenableBuilder(listenable: sniffer)` 自己订阅。
+
+**新页签怎么触发**：`supportMultipleWindows` 保持 `false`，改用注入脚本接管 ——
+
+- `a[target=_blank]` 的点击（capture 阶段，比站点自己的代理更早）；
+- `window.open(url)` 的调用；
+- 桌面习惯的 Ctrl / Cmd + 点击。
+
+脚本通过 `sb_open_tab` 这个 JS handler 把 URL 交回 Dart，`TabManager.openInNewTab`
+建页签；页签已满时降级为在当前页打开，不会点了没反应。脚本在 `onLoadStop` 里注入，
+每次页面换掉都补一次（`window` 是新的）。**不改 `window.location` 的跳转**：
+那是页面内导航，本来就该留在当前页签。
+
+不用插件自带的 `onCreateWindow`：那套要把 `windowId` 绑到新的 WebView 上，
+而新 WebView 是异步建出来的，时序很难对齐，且 Windows 侧行为不一致。
+
+**页签选择器**（`presentation/tab_switcher.dart`）：底部 Modal，两栏卡片瀑布流。
+
+- 卡片高度按标题实际折行数（1~2 行）用 `TextPainter` 量出来，逐个放进
+  「当前较矮的那一列」，两列底部才不会留一条大缝；
+- 卡片显示域名 + 标题（无标题时显示「未命名页面」，不再重复一遍域名）、
+  右上角关闭、当前页签用主题色描边；
+- 点卡片切换并关闭面板，点叉只关这一个页签、面板保留，底部「新建」建一个首页页签；
+- 页签数上限 20，纯 `Column` 堆叠足够，没有为这一屏引入瀑布流依赖。
+
+**性能约束（2026-11-13 调优）**：多页签最怕的不是「开得多」，而是「几个页面同时活着
+同时干活」。三条开销来源与对应手段：
+
+| 来源 | 表现 | 手段 |
+| --- | --- | --- |
+| 后台页签仍在绘制 | 4 个页签 = 4 份动画/合成，视频还在解码 | `WebViewHost.active`：非前台时 `pause()`（Android `WebView.onPause`、Windows `TrySuspend`）+ 注入脚本暂停页面内全部 `video`/`audio`；切回 `resume()`，**不自动续播** |
+| 一屏多个播放器 | 视频列表页十张卡片同时解码、声音叠在一起 | 自动播放兜底从「把所有 `video[autoplay]` 都 `play()`」改成「只拉**视口内第一个**」，且页面里已有在播的就不插手；另外注入 `play` 事件互斥（capture 阶段），谁开始播就把其它全暂停 |
+| 视频缩略图抽帧 | 桌面每次抽帧起一个 ffmpeg 进程，几十条并发直接把 CPU 打满 | `ThumbnailService` 加 `SerialGate`（`core/utils/serial_gate.dart`），抽帧**串行**；图片仍是并发 3 —— 图片是几个 HTTP 请求，视频是起进程 / 开媒体源，不能同一档 |
+
+内存方面的结论要写清楚：**`pause()` 不减内存**，它只停绘制和合成，省的是 CPU / GPU 活跃度。
+真正回收内存靠 `maxLive = 4` 的 LRU —— 开第 5 个页签时最久没看的那个 WebView 被销毁，
+页签保留、地址记进 `pendingUrl`。一个 Android WebView 实例私有内存约 50~100MB，
+同进程共享 renderer 时增量小于此数，但 GPU 纹理另算，4 个上限下最坏可到 200~300MB。
+
+已知不在本期范围：`pause()` **不停 JS 定时器**（Android 只有全局的 `pauseTimers()`，
+会把前台页签一起停掉，不能用），所以后台页签的轮播、心跳请求仍在跑，只是不绘制。
+要彻底停只能销毁 WebView，那等于放弃「切回来瞬开」，是当前策略明确不选的代价。
+
+**返回手势（2026-11-13 修复）**：原来按返回直接退应用，WebView 明明还有历史。
+现在 `BrowserPage` 用 `PopScope(canPop: false)` 接管：
+
+1. 页签面板开着 → 由 Navigator 自己关（Modal 在栈上，轮不到 PopScope）；
+2. 当前页签能后退 → `goBackIfPossible()` 后退，吞掉这次返回；
+3. 退不动 → `SystemNavigator.pop()`，正常退出。
+
+判定用的是实时 `canGoBack()` 而不是加载完成时的快照 —— 快照可能已经过期。
+
+**不持久化**：页签、当前页签、嗅探列表都只在内存里，杀掉应用回到一个首页。
+和嗅探悬浮按钮的位置一样，是刻意的（嗅探结果本来就是一次性的）。
+
+**已知风险**：`IndexedStack` 隐藏的子节点在 Android 上是 platform view（hybrid
+composition），理论上不参与绘制就不会显示，但需要在真机上确认非活跃页签的
+网页不会叠在当前页上面。如果出现叠加，改用每页签一个 `Offstage` 包一层。
+
+**嗅探悬浮按钮（2026-11-13 定稿）**：入口仍是右下角的悬浮按钮
+（`sniff_fab.dart`），不是顶栏一项 ——
+
+- 56dp 圆角方块（标准 FAB 尺寸），只有雷达图标 + 数量角标；
+- 毛玻璃底：`BackdropFilter` 做 14 sigma 的高斯模糊，上盖 `surface` 的 0.3 alpha
+  填充 + 一圈 0.5 alpha 描边，目的是透出下面页面而不是糊成一块实心色块；
+  阴影画在 `ClipRRect` 外面（否则会被一起裁掉），`ClipRRect` 同时挡住模糊
+  向四角外的扩散；
+- 默认停靠右侧 16、距底部 60（让开底部手势条 / 安全区）；
+- 可拖动，位置记在 `SniffFabPosition`（`fab_position.dart`）里，**只存内存**：
+  用户明确要求「杀掉应用就回默认右下角」，所以刻意不落盘；
+- 只能盖住网页区域（挂在内容 `Stack` 里），拖不到顶栏上去；拖动范围四边
+  最小留 16，拖出边界会被夹住，旋转/缩放后越界坐标同样夹回可见范围；
+- 点击打开资源面板（与顶栏第二层原入口行为一致）。
+
+> 已知限制：`BackdropFilter` 只模糊 Flutter 自己绘制的层。Android / Windows 上
+> WebView 是 platform view（独立合成层），按钮浮在网页上方时取不到它的像素，
+> 实际观感退化为「0.3 半透明底 + 描边」，模糊在网页区看不出来；盖在自绘首页
+> 这类 Flutter 内容上才有效果。
+
+**首页行为（2026-11-12 起）**：默认显示自写 Flutter 起始页，不加载任何外部网页、
+不发网络请求，所以启动瞬间 `webview.loadStop` 与两个 sniff 计数器都为 0 属正常，
+A1 / A2 必须在输入网址或搜索词、首次导航完成后再读诊断页。
+搜索引擎在顶栏第二层左侧的下拉里切换（百度 / Bing，默认百度），地址栏与首页搜索框共用同一状态；
+设 `SNIFF_HOME_URL=<url>` 可跳过自写首页、直接加载指定页面。
+
+**历史与收藏（2026-11-13 起）**：首页输入框下方两个入口（历史记录 / 收藏夹），
+各自独立成页。收藏的**写入**入口在地址栏右侧的星标 —— 顶栏第二层已经挤了
+引擎、页签、下载、诊断四个，320 宽再加就溢出，而地址栏是 `Expanded`，吞得下
+这一个图标。
+
+- 记录时机在 `WebViewHost.onLoadStop`，不是地址栏提交时：提交只是意图，
+  重定向中间页、失败页、被拦下的自定义协议都会变成假记录；标题也要等
+  `getTitle()` 回来才取得到，所以放在 `handleLoadStop` 之后；
+- 只记 `http/https`，`about:blank`、`blob:`、`data:` 一律忽略；
+- 同一地址只留一条，再次访问更新时间并提到最前（和系统浏览器一致）；
+- 历史上限 500 条、收藏 300 条，超出丢最旧的；两者各存一个文件
+  （`history.json` / `bookmarks.json`），清历史不影响收藏；
+- 落盘沿用 300ms 防抖 + 临时文件 rename 的原子写（`core/utils/json_file.dart`），
+  写失败只记日志不抛异常 —— 记录丢了不影响浏览，崩掉应用才是问题；
+- 点列表项在当前页签打开并关掉本页：历史页是中途经过的地方，不该留在返回栈；
+- 历史按天分组（今天 / 昨天 / 月日），收藏不分组、按加入时间倒序；
+- 本期不做文件夹分组、自定义标题、列表内搜索过滤。
+
+W1 需要本机有 ffmpeg，且代理环境下要带 `NO_PROXY="localhost,127.0.0.1"`（见 `README.md`）。
+`CookieManager` 已于 2026-11-13 接入（见 5.1 第 4 条），A6 开始能覆盖「只靠
+WebView Cookie Jar 才给资源」的站点；但桌面端仍沿用 CDP 带下来的 Cookie。
+
+**W1 已执行（2026-11-11）**：`verify_download.dart` 12/12、
+`download_queue_e2e_test.dart` 3/3、`transcode_e2e_test.dart` 5/5，合计 20 项全绿，
+Windows 基线未回退。
+
+**A2 已通过（2026-11-12，Android USB 真机）**：诊断页计数器
+`sniffer.onLoadResource = 85`、`sniffer.shouldIntercept = 83`，两者均 > 0，
+双回调在 Android WebView 上确实触发，本期最大未知消除。两数不等属正常：
+`onLoadResource` 只在 url 非空时对已加载资源计数，`shouldInterceptRequest`
+在请求发起时无条件计数，覆盖的请求集合不完全重合（见 `webview_host.dart:278-303`）。
+`shouldInterceptRequest` 返回 `null` 放行后页面可正常浏览、下载，
+Windows 上「原生侧不触发 / 拦截阻塞页面」的坑（见 2.3）在 Android 未复现。
+A1、A3~A6 仍待执行，**不据此判定本期通过**。
+
+**A1 / A3~A6 已通过（2026-11-13，Android USB 真机，用户自测）**：五条按
+A1 → A3 → A4 → A5 → A6 顺序执行完毕 —— 自写首页正常显示、导航后 `webview.loadStop`
+有值；分类器产出可见条目且 URL / 大小可读；视频页能捕获到流地址且未误收
+`text/html` 兜底页；入队后下载完成、产物可播放；请求头补全生效，没有出现 403。
+诊断页的具体计数由用户侧确认，不再抄进本节（每次运行都会变）。
+**B1~B12 仍待真机执行**，本期是否通过以 B 组为准。
+
+原「A 用例未全绿前不启动移动端原生导出与 FFmpeg」的门槛，已由用户在真机上
+明确要求补齐功能而提前解除（见本节开头的范围变更）。Windows 上曾实测
+`onLoadResource` 原生侧不存在、`shouldInterceptRequest` 会阻塞页面（见 2.3），
+所以 A2 仍是其余 A 用例的前置条件。
+
+#### Android 端功能验收（B 组，2026-11-12 新增，待真机执行）
+
+| 编号 | 用例 | 通过条件 |
+| --- | --- | --- |
+| B1 | 下载一个 mp4 后点「保存到相册」 | 提示「已保存到…」，系统相册 / 文件 App 的 Movies/SniffingBrowser 可见且可播放 |
+| B2 | 下载一个音频后点「保存到音乐目录」 | Music/SniffingBrowser 下可见；Dart 侧不把音频塞进相册 |
+| B3 | 下载一个 TS / m4s 后点「转为 MP4」 | 转换任务显示进度并到 100%，状态行写明落库目录；系统视频 App 的 Movies/SniffingBrowser 可见且可播放 |
+| B4 | 下载一个 mp4 / m4a 后点「转为 MP3」 | 状态行显示「已保存到「音乐/SniffingBrowser」」；产物 mp3 在音乐 App 可见、可播放（验证 libmp3lame 确实打进包） |
+| B5 | 转换途中点取消 | 状态变「已取消」而不是「失败」，不残留半成品 |
+| B6 | 对无声视频点「转为 MP3」 | 给出「这个文件里没有音轨」的中文结论，不是 ffmpeg 原文 |
+| B7 | 32 位设备 / native 库缺失 | `isAvailable()` 返回 false，不闪退（当前 AAR 只含 arm64-v8a / x86_64） |
+| B8 | 转换中点 SnackBar 的「查看进度」 | 进入「转换」页，能看到该任务的进度条，可取消 |
+| B9 | 转换完成 / 进行中重启 App | 转换页仍列着这些任务：已完成的显示落点，重启时正在跑的显示「应用重启，转换已中断，可重试」；下载记录同样保留 |
+| B10 | 下载中杀掉 App 再打开 | 下载页仍列着那条记录，状态是「失败：应用重启，下载已中断，可重试」，**不会自己开始下**；点重试后 HLS 任务从已有分片继续（日志里 `已恢复 N 条下载记录`） |
+| B11 | 已完成的任务重启后确认「文件已被删除」不会误报 | 产物还在 → 仍显示已完成、导出可用；手动删掉文件再重启 → 显示失败并说明文件已被删除 |
+| B12 | 转换完成后在转换页点 ⋮ →「打开」 | 系统播放器 / 音乐 App 直接拉起并播放该产物；重启应用后再点仍然能打开（URI 已随任务落盘） |
+
+原生侧 `TranscodeBridge.checkAvailable()` 会真正加载一次 native 库，
+所以 B7 有代码级兜底；但 B1~B6、B8、B9 必须真机跑过才能判定。
+
+#### 运行环境（本机已具备，无需额外安装）
+
+- Android SDK 在 `C:\Users\Administrator\AppData\Local\Android\Sdk`（见 `android/local.properties`），
+  `platform-tools/adb.exe` 存在但未进 PATH。已装 AVD `Pixel_5_API_34` / `Pixel_6_API_35`，
+  启动其中一个即可跑 A 用例，**不必准备真机**；当前 `adb devices` 为空只是因为模拟器没启动。
+  在用户自己的终端用 `flutter run -d <android>`（debug），或在 VSCode / Cursor 按 F5
+  启动 `.vscode/launch.json`（F5 使用状态栏选中的设备，需确认选中 Android 而非 Windows）。
+- 模拟器跑通即可判定链路成立，但 WebView 版本与真机有差异，A2 的结论建议在真机上复验一次。
+- `android/app/src/main/AndroidManifest.xml` 已补 `INTERNET` 权限（2026-11-11），
+  release 包不再因缺权限断网；debug / profile manifest 原有声明保留。
+- 同一份 manifest 也没有 `android:usesCleartextTraffic="true"`，Android 9+ 默认禁止明文 HTTP。
+  A1 / A4 若用 `http://` 测试页会加载失败，优先选 `https://` 站点；本期不改 manifest。
+- `MainActivity.kt` 已注册两个 MethodChannel：`sniffing_browser/media_exporter`
+  （`MediaExporterHandler.kt`）与 `sniffing_browser/transcoder`（`TranscodeBridge.kt`）。
+  Android 上导出与转码入口已放开；鸿蒙无原生实现，入口仍隐藏。
+- 用户实际在 **Android USB 真机**上跑（不是模拟器），A2 的 85 / 83 即真机数据。
+- `android/app/build.gradle.kts` 加了 ffmpeg-kit AAR 后，debug APK 体积明显上升；
+  `ndk.abiFilters` 限定 arm64-v8a / x86_64，32 位设备无法安装本次构建产物。
+
+#### 异常的产品行为（本期按现状接受，不改造）
+
+| 场景 | 用户看到的行为 | 本期结论 |
+| --- | --- | --- |
+| App 重启 | 下载与转换记录都已落盘：历史还在，没下完的标成「已中断，可重试」（2026-11-12） | 未完成的不自动重跑（地址会过期），点重试才续传 |
+| 单文件下载中断 | 无字节级续传，需重新入队 | 接受 |
+| 移动端「保存 / 转码」菜单 | Android 与桌面显示可点入口；鸿蒙仍隐藏 | 鸿蒙原生侧未实现，不展示点了必然失败的按钮（2026-11-12 调整） |
+| 移动端 DASH 自动合并 | Android 已可用（FFmpegKit），鸿蒙仍会失败、产物为无声 mp4 | 鸿蒙侧本期不承诺该能力，见第 9 节风险表 |
+| Android TS→MP4 转封装失败 | 直接显示 ffmpeg 错误行，不自动重编音频 | 桌面有「只重编音频」回退，Android 暂未实现，属已知差异 |
+| 页面跳自定义协议（移动端） | `bilibili://` / `intent://` 等跳转被 `CANCEL`，当前页面保持不变，日志记一条 warn | 避免整页跳到 `ERR_UNKNOWN_URL_SCHEME`；只拦非 http/https，不拦截下载 |
+| 资源列表缩略图 | 图片与视频显示缩略图；音频 / HLS / DASH 仍是类型图标，取不到图时也退回图标 | 已实现（2026-11-13），见 5.2.1 |
+| DRM / `blob:` / 签名站点 | 直接过滤，不展示 | 接受 |
+| TS 存相册 | 明确拦截并提示先转 MP4 | 接受 |
+| 打开 / 分享未导出的产物 | 下载项菜单直接「打开」或「分享」，不要求先保存到相册；Android 走 FileProvider 的 `content://` 加读授权 | 已实现（2026-11-13），见 5.5.3 |
+
+#### 交付与非功能
+
+- 本期不产出安装包、不定义版本号与分发方式。
+- 下载目录与重名规则沿用 `StoragePaths.uniqueFile()`（`name (1).ext`）；
+  临时 `.part` / `tmp/` 与日志清理沿用现状，不新增策略。
+- 权限：Android 侧只写应用私有外部目录，不申请存储权限。
+- 合规要求沿用第 9 节「合规说明」。
+
+> 下面保留原始阶段划分作为决策记录。**状态表是 2026-11-11 的实际进度**，
+> 原文里的「验收」「待验证」「首要验证项」是当时的计划，不代表现状。
+
+| 阶段 | 状态 | 实际情况 |
+| --- | --- | --- |
+| 0 环境与骨架 | 部分完成 | Windows 实测确认 CDP 是唯一可用嗅探通道；`ohos/` 未生成、Flutter-OH SDK 未配置 |
+| 1 嗅探 | 代码完成，A2 已验收 | 双回调 + Windows CDP 均已实现；Windows 实测，Android 模拟器 A2 通过（85 / 83），其余 A 用例见 8.0 |
+| 2 单文件下载与导出 | 完成（鸿蒙除外） | 下载、队列、请求头补全、内容校验完成；桌面纯 Dart 导出与 Android MediaStore 导出均已实现 |
+| 3 HLS | 完成 | 解析 / AES-128 / 6 分片并发 / fMP4 init 段 / 流式合并，端到端测试覆盖 |
+| 4 转换能力 | 桌面 + Android 完成、鸿蒙未接 | 桌面调系统 ffmpeg 进程已实测；Android 用原生 FFmpegKit AAR 桥接（2026-11-12），待真机验证 |
+| 5 鸿蒙适配 | 未开始 | Flutter-OH SDK、DevEco Studio、`ohos/` 目录均缺失 |
+| 6 Windows 适配 | 完成 | 完整链路端到端实测；原生崩溃 dump 机制已装（见 2.4） |
+| 7 打磨 | 未开始 | — |
+
 ### 阶段 0：环境与骨架
 
 - 配置 Flutter SDK（官方版 + 鸿蒙 OH 版），用 fvm 或分离的终端会话隔离 PATH
-- `flutter create --platforms ohos .` 补出 `ohos/` 目录
+- `flutter create --platforms ohos .` 补出 `ohos/` 目录（**尚未执行**）
 - `flutter config --enable-windows-desktop` 启用 Windows 桌面目标
 - DevEco Studio 打开 `ohos/` 配置自动签名
-- **Windows 端做最小嗅探验证**：搭一个空壳 WebView2 页面，确认 `shouldInterceptRequest` 能收到回调、`onLoadResource` 是否可用。这决定 Windows 端嗅探层的实现方式
+- **Windows 端做最小嗅探验证**（已完成，结论见 2.3）：`onLoadResource` 原生侧不存在，
+  `shouldInterceptRequest` 会阻塞页面，最终改为 CDP 订阅
 - 验证 `flutter run -d <ohos设备>` 与 `flutter run -d windows` 能跑起 Hello World
 
 **验收**：Android、鸿蒙、Windows 三端各跑起一个空白页；Windows 端完成嗅探回调可用性结论。
@@ -1280,8 +1859,9 @@ sniffing-browser/
 
 ### 阶段 4：转换能力
 
-- 接入 FFmpeg（Android 侧 `ffmpeg_kit_flutter_new`）
-- 封装 `FfmpegRunner`：执行、日志解析进度、取消
+- 接入 FFmpeg（**桌面已用系统 ffmpeg 进程完成并实测**；Android 已用原生
+  `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9` AAR 完成，鸿蒙待接入）
+- 封装 `TranscodeEngine` / `SystemFfmpegEngine`：执行、stderr 进度解析、进程取消
 - TS → MP4 转换
 - 音频 → MP3 转换
 - 转换队列（严格串行）
@@ -1293,7 +1873,8 @@ sniffing-browser/
 ### 阶段 5：鸿蒙适配
 
 - 切到 Flutter-OH SDK 编译，处理插件依赖的 git 分支
-- **解决 FFmpeg 双端依赖隔离**（见 3.4），这是本阶段第一优先项
+- ~~**解决 FFmpeg 双端依赖隔离**（见 3.4），这是本阶段第一优先项~~
+  **此项已作废**：3.4 的 `TranscodeEngine` 抽象已让桌面完全不引 FFmpeg pub 包
 - 接入 `@ohos/ffmpeg-kit`，验证 mp3 编码与 TS remux 在真机上可用
 - 验证 `onLoadResource` / `shouldInterceptRequest` 在 ArkWeb 上的实际行为
 - 处理存储路径差异
@@ -1305,9 +1886,9 @@ sniffing-browser/
 
 ### 阶段 6：Windows 适配
 
-- 按阶段 0 的验证结论实现 Windows 嗅探层（单通道或双通道）
-- `MediaExporter` 的 Windows 实现：纯 Dart 文件复制，弹目录选择
-- 验证 `ffmpeg_kit_flutter_new` 在 Windows x86_64 上的转码
+- Windows 嗅探层已按阶段 0 结论实现为 **CDP 通道**（`cdp_sniffer.dart`）
+- `MediaExporter` 的 Windows 实现：纯 Dart 文件复制（已可用）
+- 系统 ffmpeg 进程的转码已端到端实测（**未引入** `ffmpeg_kit_flutter_new`）
 - 桌面交互适配：右键菜单、拖拽、窗口最小尺寸、快捷键
 - 打包为可执行程序
 
@@ -1317,7 +1898,8 @@ sniffing-browser/
 
 - 页面标题/封面自动提取（`evaluateJavascript` 注入）
 - 长按图片直接下载
-- 下载完成后分享 / 打开
+- ~~下载完成后分享 / 打开~~ **已实现（2026-11-13）**：下载项菜单「打开」（全平台）
+  与「分享」（仅 Android，`FileProvider` + `ACTION_SEND`），见 5.5.3
 - 清理临时目录策略
 
 ---
@@ -1329,20 +1911,20 @@ sniffing-browser/
 | DRM 内容 | Widevine / FairPlay 加密流无法解密 | 明确不支持，UI 上给出提示 |
 | 签名平台 | YouTube 等用签名参数 + MSE 拼流，拿不到可直接请求的分片 | 放弃。B 站例外：它的 `.m4s` 是普通 HTTP 请求，带页面的 Cookie / Referer 就能下（实测通过），只是音视频分成两条流，见 5.8 |
 | `blob:` 资源 | MSE 动态拼流，WebView 层拿不到原始分片 | 直接过滤掉，不展示 |
-| 403 频发 | 缺 Referer / Cookie / UA | 请求头补全策略，见 5.1 |
+| 403 频发 | 缺 Referer / Cookie / UA | 四层补全（见 5.1）：嗅探缓存头 → `pageUrl` 兜底 Referer → 按平台给 UA → **按请求 URL 从 `CookieManager` 现取 Cookie**（2026-11-13 接入）。仍 403 时日志会写下实际发送的头名 |
 | 鸿蒙适配缺陷 | `transparentBackground` 不生效、`onReceivedError` 空指针（PR 未合） | 不使用这两个特性 |
-| 版本错配 | Flutter-OH 与插件 TAG 不匹配会导致编译失败 | 严格按 README 的兼容表锁版本 |
-| 双 SDK 冲突 | PATH 中先出现的 Flutter 接管所有命令 | fvm 管理，或分离终端 |
-| 分片并发过高 | 部分 CDN 对同 IP 并发限流 | 默认 4，可降到 2 |
+| 版本错配 | Flutter-OH 与插件 TAG 不匹配会导致编译失败 | 严格按 3.1 的版本表锁版本；鸿蒙构建才替换 WebView 依赖 |
+| 双 SDK 冲突 | PATH 中先出现的 Flutter 接管所有命令 | 日常用官方 3.44.9，鸿蒙构建才切 Flutter-OH 3.35.8-ohos；fvm 管理或分离终端 |
+| 分片并发过高 | 部分 CDN 对同 IP 并发限流 | 默认 **6**（`AppConstants.maxConcurrentSegments`），可下调 |
 | 大文件内存 | 数 GB 的流一次性读入会 OOM | 合并必须流式写入 |
 | 音频进不了相册 | 两端相册均不显示音频，鸿蒙 Media Library Kit 只处理 image/video | 音频单独走音乐目录，UI 上区分导出目标 |
-| TS 需转封装 | 相册不识别 `.ts` 容器 | FFmpeg `-c copy` remux，无损且快；fMP4 源无需此步 |
-| FFmpeg 双端依赖隔离 | `ffmpeg_kit_flutter_new` 不支持 ohos，而 Dart 无条件依赖语法 | 阶段 5 首要验证项，见 3.4 的三条路径 |
+| TS 需转封装 | 相册不识别 `.ts` 容器 | FFmpeg `-c copy` remux，无损且快；fMP4 源无需此步。桌面与 Android 均已接入（鸿蒙未接） |
+| ~~FFmpeg 双端依赖隔离~~ | 早期担心 `ffmpeg_kit_flutter_new` 不支持 ohos、Dart 无法按平台条件依赖 | **已化解**：桌面调系统 ffmpeg 进程、移动端走 `TranscodeEngine` 抽象占位，桌面不引任何 FFmpeg pub 包，见 3.4 |
 | 转码发热耗电 | 音频转 mp3 是重编码，长音频耗时明显 | 严格串行，不设为默认行为，UI 明示 |
 | mp3 有损 | 源为 AAC 时重编码必然降质 | 保留原文件，转 mp3 由用户主动触发 |
-| WebView2 插件成熟度 | `flutter_inappwebview_windows` 仅 0.5/0.6，`shouldInterceptRequest` 0.5.0 才支持 | 阶段 0 先做最小验证，嗅探失败则评估自写 WebView2 插件 |
-| Windows 嗅探通道退化 | 可能不支持 `onLoadResource`，只能走 `shouldInterceptRequest` 单通道 | 实测确认；必要时降低回调频率，仅对媒体后缀做处理 |
-| Windows ARM64 | `ffmpeg_kit_flutter_new` 仅提供 x86_64 产物 | 不考虑 ARM 设备；如需支持需自行交叉编译 FFmpeg |
+| WebView2 插件成熟度 | `flutter_inappwebview_windows` 仅 0.6 级别，且权限回调解码缺 null 检查会闪退 | 阶段 0 已实测：嗅探走 CDP；`onPermissionRequest` 恒返回有效 `PermissionResponse`（DENY），见 2.3 / 2.4 |
+| Windows 嗅探通道退化 | `onLoadResource` 不存在，`shouldInterceptRequest` 会逐个挂起请求导致页面卡死 | **实测已确认并落地方案**：改走 CDP `Network` 事件，两条原生回调在 Windows 上置 `null`，见 2.3 |
+| Windows ARM64 | 桌面依赖本机 ffmpeg 可执行文件，ARM64 构建需自行准备 | 不单独适配；早期「ffmpeg-kit 仅 x86_64 产物」的限制在当前方案下不适用 |
 | 鸿蒙导出授权窗口 | SaveButton 授权仅 10 秒 / 1 分钟，超时 `createAsset` 失效 | 先下载完成再导出，禁止在授权后才开始网络请求 |
 | 站点把 404 兜底成首页 | 请求不存在的 `.mp4` 会拿到 `200 + text/html` 的整页 HTML，扩展名不变、大小几十 KB，存下来就是“文件已损坏”。实测 `sagigames.cn` 的 `/_nuxt/videos/banner.bf78c42.mp4` 与首页 HTML 字节完全相同 | 三道防线：嗅探层按 MIME 否决（`text/html` 一律不算媒体）、下载层按内容校验（HTML/JSON/纯文本载荷拒收）、HLS 层校验 `#EXTM3U` 头。见 `media_validator.dart` |
 | 自动播放被拦 | Chromium 策略要求带声音的媒体必须由用户手势触发；内嵌 WebView 无手势上下文，同一页面在系统浏览器能播、在应用里不动 | 页面加载完成后注入兜底脚本：对 `video[autoplay]` 补 `muted` 再 `play()`，只作用于带 autoplay 的元素 |
@@ -1350,6 +1932,18 @@ sniffing-browser/
 | 移动端分不清音视频轨 | `onLoadResource` 拿不到 MIME，`.m4s` 只能按视频轨处理，配对因此失效 | 降级为单轨下载（正常，无声），日志里写明「没找到配对的音频轨」；彻底解决要在端上补 MIME 或解析 MPD |
 | 音轨残缺导致视频被截 | `-shortest` 按最短的一路截断，音轨不完整时会把视频砍掉一大截（实测 4s→2s） | 合并命令不加 `-shortest`；合并前探测两路时长，差异 >5% 记 warn 但不阻断 |
 | 对无声视频抽 MP3 失败 | ffmpeg 报 `Stream map '0:a:0' matches no streams.`，这行不含 error 字样，会被通用错误提取逻辑跳过，最后返回的是 `To ignore this, add a trailing '?' to the map.` | 引擎单独识别这类 stderr，抛 `TranscodeUnsupportedSource` 给中文结论；UI 侧用 `mergedAudio` 三态提前把已知无声的文件挡掉 |
+| ~~Android FFmpeg 未接入~~ | 桌面走系统 ffmpeg；Android 曾只有 MethodChannel 占位 | **已化解（2026-11-12）**：`TranscodeBridge.kt` + `ffmpeg-kit-full:8.1.9` AAR，三类转换均已接上；鸿蒙仍未接入，入口保持隐藏 |
+| ~~Android 导出未实现~~ | `MediaExporter` 桌面走纯 Dart 复制，Kotlin 实现曾缺失 | **已化解（2026-11-12）**：`MediaExporterHandler.kt` 走 MediaStore；鸿蒙 ArkTS 仍缺，方案见 5.5.2 |
+| ffmpeg-kit 上游退役 | 官方 `com.arthenica:ffmpeg-kit-*` 2025-04-01 从 Maven Central 移除，直接加依赖会解析失败 | 改用持续维护的 `dev.ffmpegkit-maintained` 等价构建（同包名 / 同 API / LGPL）；版本固定为 8.1.9，不用动态版本号 |
+| GPL 许可风险 | `ffmpeg_kit_flutter_new` 主包是 Full GPL，含 x264/x265，闭源自用工具不适合链接 | 选 LGPL-3.0 的非 `-gpl` 变体 `ffmpeg-kit-full`，不引入 GPL 编码器 |
+| AAR ABI 不全 | 维护版只发布 arm64-v8a / x86_64，Flutter 默认会打全 ABI，32 位设备装上后 native 库缺失 | `ndk.abiFilters` 限定两个 ABI；`checkAvailable()` 加载失败返回 false 而非崩溃；32 位真机需自行编译 AAR |
+| Android 转封装失败无回退 | TS 里 AC-3 / MPEG-2 音频装不进 MP4，`-c copy` 会失败 | 桌面有「只重编音频」回退，Android 首版直接返回 ffmpeg 错误行；已知差异，后续按需补齐 |
+| ~~任务队列未持久化~~ | `DownloadQueue` 曾只在内存里保存 `List<DownloadTask>` | **已化解**（2026-11-12）：`DownloadStore` 落 `download_tasks.json`，位置必须是私有 files 目录而非 cache，见 5.6 / 5.7 |
+| 多页签 + 视频列表页卡顿 | 后台页签挂起、媒体播放互斥、抽帧串行 | 2026-11-13 调优，见上；后台页签的 JS 定时器仍在跑（Android 没有单实例暂停 API），彻底停只能销毁 WebView |
+| 单文件不支持字节级续传 | `file_downloader.dart` 明确不支持 Range 续传 | 中断后需重新下载；HLS 只有分片级续传（`.part` 存在即跳过） |
+| 缩略图流量 | 每条图片资源都要再请求一次原图，长列表快速滚动会把整页图片重新下一遍 | 并发 3 + 排队上限 8 + 单图 3 MB 上限 + 8 秒超时，超出的这一轮跳过；见 5.2.1 |
+| 视频抽帧耗时 | `MediaMetadataRetriever` 无超时参数，慢站点可能长时间不返回 | 原生侧固定两线程（一条卡住不影响其他条目），Dart 侧 12 秒 `Future.timeout` 兜底，超时即退回图标 |
+| 缩略图与下载重复取数 | 缩略图请求和实际下载是两次独立网络请求，同一文件多花一份流量 | 缩略图只取必要字节（图片降采样、视频只读关键帧附近），不下载完整文件 |
 
 **合规说明**：本工具仅供下载用户有权访问的内容，使用者需自行确保不侵犯版权及违反站点服务条款。
 
