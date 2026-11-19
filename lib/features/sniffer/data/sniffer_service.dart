@@ -44,7 +44,14 @@ class SnifferService extends ChangeNotifier {
   int countOf(MediaType type) =>
       _items.values.where((MediaItem item) => item.type == type).length;
 
-  void setCurrentPage(String? url) {
+  /// 记录当前页面地址。它同时是下载时的 Referer 兜底值，所以不能随便被覆盖。
+  ///
+  /// [trusted] 为 false 表示这次导航不是用户点的（广告弹窗、脚本强跳）。这类
+  /// 页面不该成为后续资源的来源页：视频站的 popunder 会在播放时把当前页顶成
+  /// 广告落地页，一旦记下来，之后抓到的 m3u8 都会带着广告站的 Referer 去下载，
+  /// 服务端一校验就 403。
+  void setCurrentPage(String? url, {bool trusted = true}) {
+    if (!trusted) return;
     _currentPageUrl = url;
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../browser/providers/tab_manager.dart';
 import '../data/sniffer_service.dart';
 import '../domain/media_item.dart';
 import '../domain/media_type.dart';
@@ -34,7 +35,17 @@ class _ResourcePanelState extends ConsumerState<ResourcePanel> {
 
   @override
   Widget build(BuildContext context) {
-    final SnifferService sniffer = ref.watch(snifferProvider);
+    // 嗅探结果是「当前页签」自己的那一份。切页签时 tabManager 通知重建，
+    // 面板会跟着换成另一个页签的列表。
+    final TabManager tabs = ref.watch(tabManagerProvider);
+    return ListenableBuilder(
+      listenable: tabs.activeSniffer,
+      builder: (BuildContext context, Widget? child) =>
+          _buildPanel(context, tabs.activeSniffer),
+    );
+  }
+
+  Widget _buildPanel(BuildContext context, SnifferService sniffer) {
     final List<MediaItem> all = sniffer.items;
     final List<MediaItem> visible = _filter == null
         ? all
@@ -61,7 +72,7 @@ class _ResourcePanelState extends ConsumerState<ResourcePanel> {
               const Spacer(),
               if (all.isNotEmpty)
                 TextButton(
-                  onPressed: () => ref.read(snifferProvider).clear(),
+                  onPressed: sniffer.clear,
                   child: const Text('清空', style: TextStyle(fontSize: 12)),
                 ),
             ],
