@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  给 FileProvider 声明可共享的目录。
+
+  下载产物落在应用私有目录（StoragePaths.root -> files/SniffingBrowser、以及
+  外部私有目录 Android/data/<包名>/files/SniffingBrowser），两者都要覆盖：
+  Android 7+ 不允许把 file:// 交给外部应用，只能换成 FileProvider 的 content://。
+-->
+<paths>
+    <files-path name="internal_files" path="." />
+    <external-files-path name="external_files" path="." />
+</paths>

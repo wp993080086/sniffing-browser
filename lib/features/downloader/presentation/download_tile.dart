@@ -7,6 +7,7 @@ import '../../../core/platform/platform_info.dart';
 import '../../../core/utils/format_util.dart';
 import '../../transcoder/data/transcode_queue.dart';
 import '../../transcoder/domain/transcode_job.dart';
+import '../../transcoder/presentation/transcode_page.dart';
 import '../domain/download_status.dart';
 import '../domain/download_task.dart';
 
@@ -134,8 +135,25 @@ class _Menu extends ConsumerWidget {
 
   final DownloadTask task;
 
+  /// 桌面调系统 ffmpeg，Android 调原生 FFmpegKit；鸿蒙原生侧仍未接入。
+  static bool get _mediaFeaturesReady =>
+      PlatformInfo.isDesktop || PlatformInfo.current == AppPlatform.android;
+
+  String _exportLabel() {
+    if (PlatformInfo.isDesktop) return '另存到下载目录';
+    switch (MediaExporter.targetFor(task.type)) {
+      case ExportTarget.gallery:
+        return '保存到相册';
+      case ExportTarget.music:
+        return '保存到音乐目录';
+      case ExportTarget.file:
+        return '保存到下载目录';
+    }
+  }
+
   /// 这个任务能转成什么。已完成、有本地文件、格式匹配才给入口。
   List<TranscodeKind> _availableKinds(WidgetRef ref) {
+    if (!_mediaFeaturesReady) return const <TranscodeKind>[];
     final String? path = task.savedPath;
     if (path == null || task.status != DownloadStatus.completed) {
       return const <TranscodeKind>[];
@@ -168,8 +186,13 @@ class _Menu extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bool canExport = task.status == DownloadStatus.completed;
+    final bool canExport = task.status == DownloadStatus.completed &&
+        _mediaFeaturesReady &&
+        task.savedPath != null;
     final List<TranscodeKind> kinds = _availableKinds(ref);
+    // 打开只要文件在就行，不要求当前平台有导出 / 转码能力。
+    final bool canOpen =
+        task.status == DownloadStatus.completed && task.savedPath != null;
 
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert, size: 18),
@@ -180,16 +203,15 @@ class _Menu extends ConsumerWidget {
           const PopupMenuItem<String>(value: 'cancel', child: Text('取消')),
         if (task.status.canRetry)
           const PopupMenuItem<String>(value: 'retry', child: Text('重试')),
+        if (canOpen)
+          const PopupMenuItem<String>(value: 'open', child: Text('打开')),
+        // 桌面没有系统级分享面板，不展示点了必然无效的入口。
+        if (canOpen && PlatformInfo.current == AppPlatform.android)
+          const PopupMenuItem<String>(value: 'share', child: Text('分享')),
         if (canExport)
           PopupMenuItem<String>(
             value: 'export',
-            child: Text(
-              PlatformInfo.isDesktop
-                  ? '另存到下载目录'
-                  : (MediaExporter.targetFor(task.type) == ExportTarget.gallery
-                      ? '保存到相册'
-                      : '保存到音乐目录'),
-            ),
+            child: Text(_exportLabel()),
           ),
         for (final TranscodeKind kind in kinds)
           PopupMenuItem<String>(
@@ -200,6 +222,8 @@ class _Menu extends ConsumerWidget {
       ],
       onSelected: (String value) async {
         final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+        // 后面要跨 await 再导航，先把 Navigator 抓在手里。
+        final NavigatorState navigator = Navigator.of(context);
         if (value.startsWith('transcode:')) {
           final String name = value.substring('transcode:'.length);
           final TranscodeKind kind = TranscodeKind.values.firstWhere(
@@ -210,9 +234,12 @@ class _Menu extends ConsumerWidget {
 
           final TranscodeQueue queue = ref.read(transcodeQueueProvider);
           if (!await queue.availability()) {
+            final String hint = PlatformInfo.isDesktop
+                ? '没有找到 ffmpeg，无法转换'
+                : '转换引擎不可用，请重启应用后重试';
             messenger
               ..hideCurrentSnackBar()
-              ..showSnackBar(const SnackBar(content: Text('没有找到 ffmpeg，无法转换')));
+              ..showSnackBar(SnackBar(content: Text(hint)));
             return;
           }
 
@@ -224,7 +251,20 @@ class _Menu extends ConsumerWidget {
           );
           messenger
             ..hideCurrentSnackBar()
-            ..showSnackBar(SnackBar(content: Text('已加入转换队列：${job.displayName}')));
+            ..showSnackBar(
+              SnackBar(
+                content: Text('已加入转换队列：${job.displayName}'),
+                // 进度在独立的转换页，给一条直达入口，别让人回来找那行小字。
+                action: SnackBarAction(
+                  label: '查看进度',
+                  onPressed: () => navigator.push(
+                    MaterialPageRoute<void>(
+                      builder: (BuildContext context) => const TranscodePage(),
+                    ),
+                  ),
+                ),
+              ),
+            );
           return;
         }
 
@@ -233,6 +273,26 @@ class _Menu extends ConsumerWidget {
             ref.read(downloadQueueProvider).cancel(task.id);
           case 'retry':
             ref.read(downloadQueueProvider).retry(task.id);
+          case 'open':
+            final String? path = task.savedPath;
+            if (path == null) return;
+            if (!await MediaExporter.openFile(path)) {
+              messenger
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  const SnackBar(content: Text('没有找到能打开这个文件的应用')),
+                );
+            }
+          case 'share':
+            final String? path = task.savedPath;
+            if (path == null) return;
+            if (!await MediaExporter.shareFile(path)) {
+              messenger
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  const SnackBar(content: Text('没有找到能分享这个文件的应用')),
+                );
+            }
           case 'export':
             final ExportResult result =
                 await ref.read(downloadQueueProvider).export(task.id);
@@ -285,9 +345,17 @@ class _TranscodeStatus extends ConsumerWidget {
             text = '${current.kind.label}：$percent%';
             color = scheme.primary;
           case TranscodeStatus.completed:
-            text = current.kind.needsSecondaryInput
-                ? '已合并音轨'
-                : '已转换为 ${current.kind.extension.toUpperCase()}';
+            if (current.kind.needsSecondaryInput) {
+              text = '已合并音轨';
+            } else if (current.exportMessage == null) {
+              text = '已转换为 ${current.kind.extension.toUpperCase()}';
+            } else if (current.exported) {
+              // 移动端入库成功，把落点直接写出来，别让用户去猜文件在哪。
+              text = '已转为 ${current.kind.extension.toUpperCase()}，'
+                  '${current.exportMessage}';
+            } else {
+              text = current.exportMessage!;
+            }
             color = scheme.primary;
           case TranscodeStatus.failed:
             text = '转换失败：${current.error ?? "未知原因"}';

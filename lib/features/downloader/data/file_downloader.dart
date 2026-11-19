@@ -3,19 +3,34 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/logging/app_log.dart';
+import '../../../core/platform/platform_info.dart';
 import '../../sniffer/domain/media_type.dart';
 import 'media_validator.dart';
+
+/// 按 URL 取一份 `name=value; name2=value2` 形式的 Cookie。
+///
+/// Android 上必须由 WebView 的 `CookieManager` 提供：`WebResourceRequest`
+/// 的 `getRequestHeaders()` 不含 Cookie（那些是原生网络栈自己注入的），
+/// 所以嗅探缓存下来的头永远缺这一段，纯靠它下载必然 403。
+typedef CookieLoader = Future<String?> Function(String url);
 
 /// 普通单文件下载（图片 / mp3 / mp4 / 分片）。
 ///
 /// 先写 `.part` 再 rename —— 中途失败不会留下一个看似完整的半截文件，
 /// 这对“下载完成后自动导出到相册”尤其重要。
 class FileDownloader {
-  FileDownloader({Dio? dio}) : _dio = dio ?? createDio();
+  FileDownloader({Dio? dio, CookieLoader? cookieLoader})
+      : _dio = dio ?? createDio(),
+        _cookieLoader = cookieLoader;
 
   final Dio _dio;
+
+  /// 缺省为 null（纯 Dart 环境、单测、桌面不需要）：此时行为与之前完全一致。
+  final CookieLoader? _cookieLoader;
 
   static Dio createDio() {
     return Dio(
@@ -51,6 +66,10 @@ class FileDownloader {
       await part.delete();
     }
 
+    // Cookie 只取一次，重试沿用同一份：每次重试都过一遍 WebView 通道没有收益。
+    final Map<String, String> requestHeaders =
+        _sanitizeHeaders(await _withCookies(url, headers));
+
     Object? lastError;
     for (int attempt = 0; attempt <= retries; attempt++) {
       try {
@@ -58,7 +77,7 @@ class FileDownloader {
           url,
           part.path,
           options: Options(
-            headers: _sanitizeHeaders(headers),
+            headers: requestHeaders,
             responseType: ResponseType.stream,
           ),
           cancelToken: cancelToken,
@@ -91,6 +110,7 @@ class FileDownloader {
       } on DioException catch (e) {
         lastError = e;
         if (CancelToken.isCancel(e)) rethrow;
+        _logForbidden(e, url, requestHeaders);
         if (attempt == retries) break;
         await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1)));
       }
@@ -110,13 +130,16 @@ class FileDownloader {
     CancelToken? cancelToken,
     int retries = 2,
   }) async {
+    final Map<String, String> requestHeaders =
+        _sanitizeHeaders(await _withCookies(url, headers));
+
     Object? lastError;
     for (int attempt = 0; attempt <= retries; attempt++) {
       try {
         final Response<List<int>> response = await _dio.get<List<int>>(
           url,
           options: Options(
-            headers: _sanitizeHeaders(headers),
+            headers: requestHeaders,
             responseType: ResponseType.bytes,
           ),
           cancelToken: cancelToken,
@@ -125,6 +148,7 @@ class FileDownloader {
       } on DioException catch (e) {
         lastError = e;
         if (CancelToken.isCancel(e)) rethrow;
+        _logForbidden(e, url, requestHeaders);
         if (attempt == retries) break;
         await Future<void>.delayed(Duration(milliseconds: 300 * (attempt + 1)));
       }
@@ -166,9 +190,99 @@ class FileDownloader {
     return result;
   }
 
-  static const String _defaultUserAgent =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-      '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+  /// 把 WebView 侧同域的 Cookie 合并进请求头。
+  ///
+  /// HLS 的分片经常换到 CDN 域名，所以按**每个请求的 URL** 现取，而不是复用
+  /// playlist 那一份。取不到就按原样发 —— Cookie 获取失败绝不能挡住下载。
+  Future<Map<String, String>> _withCookies(
+    String url,
+    Map<String, String> headers,
+  ) async {
+    final CookieLoader? loader = _cookieLoader;
+    if (loader == null) return headers;
+
+    String? fromJar;
+    try {
+      fromJar = await loader(url);
+    } catch (_) {
+      return headers;
+    }
+    if (fromJar == null || fromJar.isEmpty) {
+      _logCookieMiss(url);
+      return headers;
+    }
+
+    final Map<String, String> result = Map<String, String>.from(headers);
+    String? existing;
+    for (final String key in result.keys.toList()) {
+      if (key.toLowerCase() != 'cookie') continue;
+      existing = result.remove(key);
+    }
+
+    final Map<String, String> merged = mergeCookies(existing, fromJar);
+    if (merged.isEmpty) return result;
+    result['Cookie'] = merged.entries
+        .map((MapEntry<String, String> e) => '${e.key}=${e.value}')
+        .join('; ');
+    return result;
+  }
+
+  /// 403 时把「实际发出去哪些头」记下来，排查缺 Referer 还是缺 Cookie 用。
+  /// Cookie 只打名字不打值：写进日志是隐患。
+  void _logForbidden(
+    DioException error,
+    String url,
+    Map<String, String> headers,
+  ) {
+    if (error.response?.statusCode != 403) return;
+
+    String referer = '(无)';
+    String cookieNames = '(无)';
+    headers.forEach((String key, String value) {
+      final String lower = key.toLowerCase();
+      if (lower == 'referer') referer = value;
+      if (lower == 'cookie') cookieNames = _cookieNames(value);
+    });
+    // 有的站点是 Cloudflare / 字节 CDN 在拦，Server 和 CF-Ray 能直接区分
+    // 「自己的头不对」和「被 WAF 挡了」这两种完全不同的原因。
+    final String server = error.response?.headers.value('server') ?? '-';
+    final String cfRay = error.response?.headers.value('cf-ray') ?? '-';
+    logWarn(
+      'Download',
+      '403 $url Referer=$referer Cookie=[$cookieNames] Server=$server CF-Ray=$cfRay',
+    );
+  }
+
+  static String _cookieNames(String header) {
+    final List<String> names = <String>[];
+    for (final String part in header.split(';')) {
+      final int eq = part.indexOf('=');
+      if (eq <= 0) continue;
+      names.add(part.substring(0, eq).trim());
+    }
+    return names.join(',');
+  }
+
+  /// 某个域名始终取不到 Cookie 时记一条。分片动辄几百个请求，不能每个都打。
+  static final Set<String> _cookieMissLogged = <String>{};
+
+  void _logCookieMiss(String url) {
+    final String host = Uri.tryParse(url)?.host ?? url;
+    if (!_cookieMissLogged.add(host)) return;
+    logDebug('Download', 'WebView 里没有 $host 的 Cookie');
+  }
+
+  /// 缺省 UA。移动端必须给移动 UA：`onLoadResource` 只给 URL、拿不到头时
+  /// 会落到这里，而 WebView 自己发的就是移动 UA，很多站点按 UA 决定返回
+  /// 内容、甚至参与签名校验，用桌面 UA 会直接 403。
+  static String get _defaultUserAgent {
+    if (PlatformInfo.isMobile) {
+      return 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 '
+          '(KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+    }
+    return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+  }
 
   String _describeError(Object? error) {
     if (error is DioException) {
@@ -207,4 +321,29 @@ class DownloadException implements Exception {
 
   @override
   String toString() => url == null ? message : '$message ($url)';
+}
+
+/// 合并两份 Cookie：[existing]（嗅探到的那份，页面当时真实生效）同名优先。
+@visibleForTesting
+Map<String, String> mergeCookies(String? existing, String fromJar) {
+  final Map<String, String> merged = _parseCookieHeader(fromJar);
+  if (existing != null) {
+    _parseCookieHeader(existing).forEach((String name, String value) {
+      merged[name] = value;
+    });
+  }
+  return merged;
+}
+
+Map<String, String> _parseCookieHeader(String raw) {
+  final Map<String, String> out = <String, String>{};
+  for (final String part in raw.split(';')) {
+    final int eq = part.indexOf('=');
+    // eq == 0 是非法的 "=value"，直接丢。
+    if (eq <= 0) continue;
+    final String name = part.substring(0, eq).trim();
+    if (name.isEmpty) continue;
+    out[name] = part.substring(eq + 1).trim();
+  }
+  return out;
 }

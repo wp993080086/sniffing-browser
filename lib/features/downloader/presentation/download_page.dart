@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../transcoder/presentation/transcode_page.dart';
 import '../data/download_queue.dart';
 import '../domain/download_task.dart';
 import 'download_tile.dart';
@@ -19,6 +20,26 @@ class DownloadPage extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('下载', style: TextStyle(fontSize: 17)),
         actions: <Widget>[
+          // 转换任务独立成页：它和下载记录解耦，移除下载记录后仍能在这里看到。
+          Consumer(
+            builder: (BuildContext context, WidgetRef ref, Widget? child) {
+              final int active = ref.watch(transcodeQueueProvider).activeCount;
+              return IconButton(
+                tooltip: '转换',
+                icon: active > 0
+                    ? Badge(
+                        label: Text('$active'),
+                        child: const Icon(Icons.sync_alt),
+                      )
+                    : const Icon(Icons.sync_alt),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (BuildContext context) => const TranscodePage(),
+                  ),
+                ),
+              );
+            },
+          ),
           if (tasks.any((DownloadTask t) => t.status.isFinished))
             TextButton(
               onPressed: () => ref.read(downloadQueueProvider).clearFinished(),

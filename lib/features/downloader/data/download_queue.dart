@@ -17,6 +17,7 @@ import '../../transcoder/domain/transcode_job.dart';
 import '../domain/dash_pair.dart';
 import '../domain/download_status.dart';
 import '../domain/download_task.dart';
+import 'download_store.dart';
 import 'file_downloader.dart';
 import 'hls/hls_downloader.dart';
 
@@ -34,13 +35,21 @@ class DownloadQueue extends ChangeNotifier {
     HlsDownloader? hlsDownloader,
     TranscodeQueue? transcoder,
     List<MediaItem> Function()? poolSupplier,
+    DownloadStore? store,
   })  : _downloader = downloader ?? FileDownloader(),
-        _hls = hlsDownloader ?? HlsDownloader(),
         _transcoder = transcoder,
-        _poolSupplier = poolSupplier;
+        _poolSupplier = poolSupplier,
+        _store = store {
+    // HLS 缺省复用同一个 downloader：Cookie / 超时 / 重试策略必须和单文件
+    // 一致，否则会出现「playlist 拿得到、分片 403」这种难查的差异。
+    _hls = hlsDownloader ?? HlsDownloader(downloader: _downloader);
+  }
 
   final FileDownloader _downloader;
-  final HlsDownloader _hls;
+  late final HlsDownloader _hls;
+
+  /// 任务记录的落盘。为 null 表示不持久化（测试用）。
+  final DownloadStore? _store;
 
   /// 合并音视频用。缺省时退化为「只下载不合并」，不影响单轨下载。
   final TranscodeQueue? _transcoder;
@@ -62,6 +71,8 @@ class DownloadQueue extends ChangeNotifier {
 
   int _runningCount = 0;
   bool _disposed = false;
+  bool _restored = false;
+  bool _persistScheduled = false;
 
   List<DownloadTask> get tasks => List<DownloadTask>.unmodifiable(_tasks);
 
@@ -75,6 +86,47 @@ class DownloadQueue extends ChangeNotifier {
       .length;
 
   bool get hasRunning => _runningCount > 0;
+
+  /// 从磁盘恢复上次的下载记录。
+  ///
+  /// 规则和转换队列不同，因为两者的「未完成」含义不一样：
+  /// - `completed`：产物还在就能直接看、导出、转码；文件被清掉了（用户清
+  ///   `Android/data`、系统回收空间）就标成失败，否则点导出才发现是空的。
+  /// - 其余（pending / running / paused）：**一律标成「已中断，可重试」，
+  ///   不自动重跑**。下载是随进程走的，应用被杀之后不可能还在跑；而且这些
+  ///   地址（m3u8 / m4s）多半带签名，隔一段时间就过期，重启后自动跑只会刷
+  ///   一屏 403，还可能在移动网络下白耗流量。
+  ///
+  /// 用户点重试时任务 id 不变，HLS 的临时分片目录（`tmp/<taskId>/seg_*.part`）
+  /// 还在，所以那是真正的分片级续传，不是从头再来。
+  Future<void> restore() async {
+    final DownloadStore? store = _store;
+    if (store == null || _restored || _disposed) return;
+    _restored = true;
+
+    final List<DownloadTask> tasks = await store.load();
+    if (_disposed || tasks.isEmpty) return;
+
+    for (final DownloadTask task in tasks) {
+      if (task.status == DownloadStatus.completed) {
+        final String? path = task.savedPath;
+        if (path == null || !await File(path).exists()) {
+          task
+            ..savedPath = null
+            ..fail('文件已被删除，可重新下载');
+          // 不留在 100%：失败的任务挂个满进度条会让人以为是「下完了」。
+          task.progress.value = 0;
+        }
+      } else if (task.status != DownloadStatus.canceled &&
+          task.status != DownloadStatus.failed) {
+        task.fail('应用重启，下载已中断，可重试');
+      }
+      _tasks.add(task);
+    }
+    logInfo('Download', '已恢复 ${_tasks.length} 条下载记录');
+    _safeNotify();
+    _schedulePersist();
+  }
 
   /// 入队。同一 mediaId 已在队列中则不重复添加，直接返回已有任务。
   ///
@@ -105,6 +157,7 @@ class DownloadQueue extends ChangeNotifier {
     }
 
     _safeNotify();
+    _schedulePersist();
     _pump();
     return task;
   }
@@ -170,6 +223,7 @@ class DownloadQueue extends ChangeNotifier {
     } else if (task.status == DownloadStatus.pending) {
       task.setStatus(DownloadStatus.canceled);
       _safeNotify();
+      _schedulePersist();
     }
   }
 
@@ -188,6 +242,7 @@ class DownloadQueue extends ChangeNotifier {
     task.mergedAudio = null;
     task.setStatus(DownloadStatus.pending);
     _safeNotify();
+    _schedulePersist();
     _pump();
   }
 
@@ -201,6 +256,7 @@ class DownloadQueue extends ChangeNotifier {
     _forgetPairState(task);
     task.dispose();
     _safeNotify();
+    _schedulePersist();
   }
 
   void clearFinished() {
@@ -213,6 +269,7 @@ class DownloadQueue extends ChangeNotifier {
       task.dispose();
     }
     _safeNotify();
+    _schedulePersist();
   }
 
   /// 任务从列表里消失后清掉配对相关的记账，避免长时间使用后无限增长。
@@ -239,7 +296,20 @@ class DownloadQueue extends ChangeNotifier {
     );
     task.exportStatus = result.status;
     _safeNotify();
+    _schedulePersist();
     return result;
+  }
+
+  /// 攒一批写：入队 → 开始 → 结束往往是连着几次状态变更，
+  /// 每次都落盘会反复打开同一个文件。
+  void _schedulePersist() {
+    if (_store == null || _persistScheduled || _disposed) return;
+    _persistScheduled = true;
+    Future<void>.delayed(const Duration(milliseconds: 300), () {
+      _persistScheduled = false;
+      if (_disposed) return;
+      unawaited(_store.save(_tasks));
+    });
   }
 
   void _pump() {
@@ -265,6 +335,9 @@ class DownloadQueue extends ChangeNotifier {
     _runningCount++;
     task.setStatus(DownloadStatus.running);
     _safeNotify();
+    // 把「下载中」也落盘：万一应用被系统杀掉，下次启动才知道这条是中断，
+    // 而不是把它当成还没开始的 pending 又自动跑一遍。
+    _schedulePersist();
 
     final CancelToken token = CancelToken();
     _tokens[task.id] = token;
@@ -297,6 +370,7 @@ class DownloadQueue extends ChangeNotifier {
       _tokens.remove(task.id);
       _safeNotify();
       _afterTaskSettled(task);
+      _schedulePersist();
       _pump();
     }
   }
@@ -410,6 +484,7 @@ class DownloadQueue extends ChangeNotifier {
           logWarn('Download', '合并失败（${status.label}），保留原始分片');
         }
         _safeNotify();
+        _schedulePersist();
       },
     );
   }
