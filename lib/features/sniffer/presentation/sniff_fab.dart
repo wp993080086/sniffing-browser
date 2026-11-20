@@ -191,8 +191,10 @@ class _GlassSurface extends StatelessWidget {
           filter: ImageFilter.blur(sigmaX: _blur, sigmaY: _blur),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              // 0.3 透明：既透出下面的页面，又保住图标的对比度。
-              color: scheme.surface.withValues(alpha: 0.3),
+              // 0.75 不透明度：网页多半是白底，0.3 时玻璃几乎化进背景，
+              // 图标也跟着发虚；压到 0.75 既保住毛玻璃的透光感，又让
+              // 图标有足够对比度。剩下 25% 仍透出模糊后的底色。
+              color: scheme.surface.withValues(alpha: 0.75),
               borderRadius: radius,
               border: Border.all(
                 color: scheme.outlineVariant.withValues(alpha: 0.5),
