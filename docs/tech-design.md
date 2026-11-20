@@ -347,7 +347,7 @@ Android 侧「系统无 MP3 编码器，必须靠 FFmpeg `libmp3lame`」的判�
 | Windows ARM64 | 取决于本机是否有对应架构的 ffmpeg 可执行文件 | 不单独适配 |
 
 **Android AAR 约束**：只发布 `arm64-v8a` / `x86_64`，`minSdk 24`。
-`android/app/build.gradle.kts` 已用 `ndk.abiFilters` 限制为这两个 ABI——
+`android/app/build.gradle.kts` 已用 `packaging.jniLibs.excludes` 剔掉 32 位 ABI——
 否则 Flutter 会打出含 32 位 ABI 的 APK，装上后 `libffmpegkit.so` 缺失会直接崩。
 USB 真机若为 32 位设备需自行编译 AAR 或改用系统 API 方案。
 
@@ -669,12 +669,11 @@ class FileDownloader {
   HLS 则是分片级续传（`.part` 已存在且非空就跳过，`#EXT-X-BYTERANGE` 用
   `Range: bytes=start-end`）
 - 并发上限 3（`AppConstants.maxConcurrentDownloads`）
-- 重试分两套预算，互不占用（详见 5.3.5）：
-  - **网络类**（超时 / 连接失败 / `unknown` 底下的 socket、TLS 异常）：按
-    `_networkWaits` 表等 2 / 5 / 10 / 15 / 20 / 30 / 30 秒，累计约 2 分钟 —— 熄屏断网、
-    Wi-Fi↔蜂窝切换要更久才有机会恢复；
-  - **站点类**（403 / 404 / 5xx）：`retries = 2`，退避 400 / 800ms 线性递增，
-    等再久也不会自己变好
+- 重试分两层（详见 5.3.5）：
+  - **单次请求**：网络类失败退避 0.5s / 1.5s，站点类（403 / 404 / 5xx）`retries = 2`，
+    400 / 800ms 线性递增；
+  - **任务级**：`DownloadException.network` 为真时任务转「等待网络」，按
+    3 / 10 / 20 / 30 / 60 秒递增无限重试，网络回来自动续传
 - 文件名经 `StoragePaths.uniqueFile()` 消毒（Windows 非法字符 / 保留名 / 长度上限），
   重名时追加 ` (1)`、` (2)`
 
@@ -788,7 +787,7 @@ CDN 掐长连接、Wi-Fi 与蜂窝切换也会走到同一条路径。后台冻�
 Android 13+ 用户拒绝通知权限时服务照常运行，只是通知不可见 —— 所以权限请求失败
 不影响下载，代码里也没有把它当错误。
 
-#### 5.3.5 两套重试预算：网络断了可以等，站点拒了不能等（2026-11-20）
+#### 5.3.5 断网不判死：「等待网络」与自动续传（2026-11-20）
 
 前台服务挡住了「进程被冻结」，没挡住「网络被挂起」。实测日志：
 
@@ -799,34 +798,40 @@ WebView  资源加载失败: .../api/models?... — net::ERR_CONNECTION_CLOSED
 ```
 
 三条同现，说明不是站点问题：熄屏后系统挂起了这条连接的出口，TLS 握手在中途被
-掐断（`unknown` 的一种，`error.error` 是 `HandshakeException`），同一个瞬间 WebView
-的请求也报 `ERR_CONNECTION_CLOSED`。解锁后手动点重试就能接着下 —— 分片都在
-`workDir` 里，只补缺的那些。
+掐断（`unknown` 的一种，`error.error` 是 `HandshakeException`），同一瞬间 WebView
+的请求也报 `ERR_CONNECTION_CLOSED`。
 
-问题在于重试预算：旧实现里网络中断和 403 共用 `retries = 2`，2s + 6s 之后就
-放弃，而熄屏断网远不止 8 秒。也就是说「内部重试机制」在真正需要它的场景下不够用。
+**第一版做法（已废弃）**：在 `FileDownloader` 里给网络类失败一张 2 分钟的等待表。
+问题是等待发生在 IO 层，界面完全看不见 —— 进度冻在 144/2095 两分钟，和卡死没有
+区别；超过两分钟仍然失败，还是得用户点一次重试。
 
-现在拆成两套互不占用的预算（`FileDownloader._nextWait`）：
+**现在**：等待上移到任务层，`DownloadQueue._runWithNetworkRecovery`。
 
-| 失败类型 | 判定 | 预算 |
-|---|---|---|
-| 网络类 | `connectionTimeout` / `sendTimeout` / `receiveTimeout` / `connectionError`，以及 `unknown` 且 `error.error` 是 `SocketException` / `TlsException` / `HandshakeException` | `_networkWaits` 表：2 / 5 / 10 / 15 / 20 / 30 / 30 秒，累计约 2 分钟 |
-| 站点类 | `badResponse`（403 / 404 / 5xx）、证书错误等 | `retries` 次短退避（400ms 起线性） |
+| 层 | 职责 |
+|---|---|
+| `FileDownloader` | 单次请求只做两次很短的退避（0.5s / 1.5s），并把结论标记到 `DownloadException.network` |
+| `DownloadQueue` | 收到 `network == true` 就把任务置为 `waitingNetwork`，按 3 / 10 / 20 / 30 / 60 秒递增重试，第 4 次之后固定一分钟一次，**不设总时长上限** |
 
-- 网络等待只在**首轮**打 warn、之后转 debug：6 个分片并发时每轮都 warn 会刷屏；
-- 等待前先看 `cancelToken.isCancelled`，用户取消后不必再白等一轮才撞上 cancel；
-- `FileDownloader` 构造参数 `networkWaits` 可注入，用例里传零时长表，跑测试不用
-  真等两分钟；
-- 文案区分阶段：握手阶段断 → 「连接在 TLS 握手阶段被中断，通常是熄屏断网或网络
-  切换」；响应体中途断 → 「连接被中途断开」；DNS / 路由没了 → 「当前没有可用网络」。
+- 判定（`_isNetworkFailure`）：`connectionTimeout` / `sendTimeout` / `receiveTimeout` /
+  `connectionError`，以及 `unknown` 且 `error.error` 是 `SocketException` /
+  `TlsException` / `HandshakeException`。`badResponse`（403 / 404 / 5xx）不算 ——
+  站点拒绝等多久都不会变好。
+- 每轮重试都是重新走 `_runFile` / `_runHls`：前者靠 `.part` 的 `Range` 续传，
+  后者靠 `tmp/<taskId>/seg_*.part` 分片级续传，所以等多久都不会白下。
+- 等待可被取消打断（`Future.any([delay, token.whenCancel])`），否则点了取消还要
+  干等满一分钟才变「已取消」。
+- 状态机新增 `DownloadStatus.waitingNetwork`，卡片显示「等待网络，30 秒后自动重试」，
+  进度条冻在原处（换成不确定动画反而像在重下）。**不写 `error` 字段**：这不是失败，
+  写进去恢复逻辑和界面都会当失败处理。
+- 重启后 `waitingNetwork` 和其它未完成状态一样，标成「应用重启，下载已中断，可重试」，
+  不自动重跑（签名会过期，见 5.3.2）。
 
-**仍然不做的**：整条任务自动重跑（签名会过期，见 5.3.2）。网络预算用尽后任务转
-`failed`，`.part` 与已完成分片都留着，用户点一次「重试」即续传。
+**代价**：一条任务可能长时间挂在「等待网络」。这是刻意的 —— 熄屏、进隧道、地铁里
+几分钟没信号都属正常，判死反而要用户回来手动点。界面上一直显示在等，用户随时能取消。
 
 **MIUI 类 ROM 还有一层**：系统「锁屏后断开数据」策略会直接切掉网络，与前台的
-FGS 无关。表现是每次熄屏必断、解锁即恢复。这种情况只能把应用电池策略设成
-「无限制」（设置 → 应用设置 → 应用管理 → 嗅探浏览器 → 省电策略），代码侧等 2 分钟
-也能兜住短时断网。
+FGS 无关，表现是每次熄屏必断、解锁即恢复。这种情况把应用电池策略设成「无限制」
+（设置 → 应用设置 → 应用管理 → 嗅探浏览器 → 省电策略），剩下的交给上面这套重试。
 
 ### 5.4 HLS 下载
 
@@ -967,8 +972,9 @@ class HlsDownloader {
 }
 ```
 
-单分片失败按 5.3.5 的两套预算重试：网络类走分钟级等待表（熄屏断网时 6 个 worker
-一起等，网络回来继续），站点类才用 `AppConstants.segmentRetryCount` 快速耗尽。
+单分片失败先用 `AppConstants.segmentRetryCount` 重试；仍失败且属于网络类时，
+整条任务转「等待网络」由队列接手（见 5.3.5），网络回来会重跑一次 `_runHls`，
+已下完的分片直接跳过。
 仍失败才记一行 `第 i/N 个分片失败` 并中止整条任务 —— 分片序号是判断「站点固定位置
 限流」还是「随机断线」的关键线索。已下的分片留在 `tmp/<taskId>/`，用户点重试就是
 分片级续传。
@@ -1254,13 +1260,14 @@ pending → running → completed
         ↘ paused
         ↘ failed (可重试)
         ↘ canceled
+        ↘ waitingNetwork → running（网络恢复后自动续传，见 5.3.5）
 ```
 
-实际状态枚举见 `download_status.dart`（含 `paused` 与 `completed`；
+实际状态枚举见 `download_status.dart`（含 `paused`、`waitingNetwork` 与 `completed`；
 早期草案写的 `success` 不是实际值）。
 
-- 全局最多 3 个任务并发，同一 m3u8 内部开 **6** 个分片
-  （`AppConstants.maxConcurrentDownloads` / `maxConcurrentSegments`）
+- 全局最多 3 个任务并发（`AppConstants.maxConcurrentDownloads`）；同一 m3u8 内部的
+  分片并发从设置页读，默认 **6**、范围 1~12（`AppSettings`，见 5.6.1）
 - **任务记录已持久化**（`DownloadStore`，`download_tasks.json`，2026-11-12）：
   只存「任务是什么、停在哪一步」，不存进度百分比。**位置必须是应用私有 files
   目录，不能用 cache 目录** —— Android 的 `cache` 会在存储紧张时被系统静默清掉，
@@ -1285,6 +1292,33 @@ pending → running → completed
   + `FileAccessMode.append` 接着写；服务端不认 Range（回 200 全量）时丢弃重下，
   详见 5.3.3
 - DASH 的 `.mpd` 任务直接抛「暂不支持 DASH 分片重组」；嗅探到的 `.m4s` 分片走 5.8 的配对合并
+
+#### 5.6.1 设置页：分片并发与代理（2026-11-20）
+
+入口是顶栏第二层的齿轮（`Icons.settings_outlined`，不带文字：那一排已经四个按钮，
+再加一个带文字的会在 360dp 宽的机器上挤爆）。落盘 `settings.json`，位置和任务记录
+同级 —— 私有 files 目录，不用 cache。
+
+**分片并发**（1~12，默认 6）：
+
+- 下限 1 是给「一直被 CDN 限流」的站点留一条能走通的路，串行总比失败强；
+- 上限 12：再多收益很小，被限流的概率反而明显上升；
+- 取值走回调（`HlsDownloader(segmentConcurrency: ...)`），改完对**下一条**任务生效，
+  不用重建下载器；拖动过程只改本地值，松手才落盘，避免每跳一格写一次 JSON。
+
+**代理**：
+
+- 根因：Dart 的 `HttpClient` **不会**自动读系统或环境变量里的代理。`dio` 建默认
+  适配器时也不带 `findProxy`，所以 `HTTP_PROXY` 一直没生效。
+- 做法：`FileDownloader.createDio(proxy: ...)` 换成 `IOHttpClientAdapter`，给
+  `HttpClient.findProxy` 挂一个闭包 —— 每次连接前现取当前规则，设置改完对后续
+  请求立即生效，不需要重启或重建队列。
+- 规则来自 `ProxyRule`：手动填的优先，否则读 `https_proxy` / `HTTPS_PROXY` /
+  `http_proxy` / `HTTP_PROXY` / `all_proxy` / `ALL_PROXY`；`no_proxy` 支持
+  `localhost`、`.corp.com`、`*` 三种写法。填 `socks5://127.0.0.1:1080` 也能识别，
+  会转成 `SOCKS5 host:port`。
+- **Android 拿不到系统 Wi-Fi 代理**：那是系统网络栈的配置，Dart 侧读不到，
+  只能在设置页手填。
 
 ### 5.7 转换队列
 
@@ -1523,6 +1557,80 @@ ffprobe 只有 1 条 h264 流，抽音轨直接报 `Output file does not contain
 `-map 0:a:0` 是必须的：多音轨的片源（双语版）不指定时 ffmpeg 按 default
 标记挑，选中的不一定是用户以为的那条。不加 `-ac 2`：实测 5.1 源 ffmpeg
 会自动降混到立体声，强行指定反而把单声道源也变成双声道、文件白白大一倍。
+
+---
+
+### 5.9 站内视频解析（抖音）（2026-11-20 新增）
+
+嗅探器解决不了抖音：网页版播放器用 DASH，`<video>` 的 `src` 是 `blob:`，
+真实地址既不在 DOM 里，也不是一条能直接下的整文件请求。
+
+但**页面自己在请求接口时会拿到完整直链**：`/aweme/v1/web/aweme/detail/` 的响应里
+`video.play_addr.url_list[0]` 就是 `v3-web.douyinvod.com/...mime_type=video_mp4`
+的整文件地址，支持 Range，可以直接喂给 5.3 的下载器。
+
+所以这里不做「破解签名」，做「读页面已经拿到的结果」：
+
+```
+用户粘链接 → WebView 打开 → 注入 hook → 页面自己带签名请求接口
+                                        ↓
+                              hook 读 fetch/XHR 响应
+                                        ↓
+                         play_addr.url_list[0] → 下载队列
+```
+
+关键取舍：
+
+| 方案 | 结论 |
+| --- | --- |
+| 自己请求接口 + 跑 `webmssdk.js` 生成 `a_bogus` | 否。要引 JS 引擎，算法月抛级维护 |
+| hook `fetch` / `XMLHttpRequest` 读响应 | **采用**。签名归页面管，只读结果 |
+| 扫 `window._ROUTER_DATA` 等 SSR 数据 | 作为兜底通道并行跑 |
+
+三条通道任一命中即可（见 `douyin_hook.dart`）：接口响应、SSR 全局变量、页面对象遍历。
+
+**注入时机必须是 `AT_DOCUMENT_START`**。`onLoadStop` 再注入的话，首屏那次详情
+请求早发出去了，hook 装不上。
+
+**两条降级路线**，都在 `video_resolver_page.dart` 里：
+
+1. 12 秒没结果且有 `aweme_id` → 改加载 `iesdouyin.com/share/video/{id}/`，
+   分享页的内联数据往往不要求登录；
+2. 40 秒还没结果 → 判失败，让用户重试。WebView 全程可见，需要登录/过验证时
+   用户能直接在上面操作。
+
+**支持的边界**：只认 `douyin.com` / `iesdouyin.com`，粘别站链接会直接提示
+「没找到抖音链接」，不会走进解析流程白等 40 秒。
+
+**微信视频号不做**，原因是结构性的，不是工程量问题：
+
+- 没有网页播放页，视频只活在微信客户端内；
+- 分享出来的 `wxaurl.cn` 短链与会话绑定，离开微信就打不开；
+- 传输走私有 TLS（mmtls），内容还是 AES-128 加密的 HLS。
+
+市面上的视频号下载器清一色是 PC 端 MITM（起代理 + 装根证书 + 解微信 TLS + 注入
+播放页 JS + AES 解密），依赖「微信是另一个进程」这个前提。手机 App 做不到。
+
+### 5.10 页签模型：常驻起始页（2026-11-20 调整）
+
+早期把起始页当成一个普通页签：`TabManager` 构造时建一个空页签，`isHomePage`
+为真就盖一层 `HomePage`。问题在**第一次导航**——用户在起始页输入网址，那个页签
+就地变成网页，起始页随之消失，只能靠「新建」再造一个。
+
+现在起始页是常驻页签（`BrowserTab.pinned`）：
+
+| 行为 | 规则 |
+| --- | --- |
+| 创建 | 构造 `TabManager` 时建一个，id 固定为 `home`，永远在 `_tabs[0]` |
+| 关闭 | `closeTab` 直接忽略，它是壳，不是窗口 |
+| WebView | 不建。`_ensureLive` 对 pinned 直接 return，底下没有原生实例 |
+| 导航 | 停在起始页时 `navigate` **新建页签**再加载，起始页留在原地 |
+| 新建空白 | `createTab()` 不带地址 = 回起始页，不再复制第二个空白页签 |
+| 计数 | `tabCount` 不含起始页，顶栏显示的是真实网页窗口数 |
+| 关光网页 | 落回起始页（起始页永不删除，所以 `_tabs` 不会空） |
+
+页签切换器里它仍以卡片出现（否则用户没有回首页的入口），但没有关闭键，
+标题显示应用名。
 
 ---
 
@@ -1999,7 +2107,8 @@ A1 → A3 → A4 → A5 → A6 顺序执行完毕 —— 自写首页正常显�
   Android 上导出与转码入口已放开；鸿蒙无原生实现，入口仍隐藏。
 - 用户实际在 **Android USB 真机**上跑（不是模拟器），A2 的 85 / 83 即真机数据。
 - `android/app/build.gradle.kts` 加了 ffmpeg-kit AAR 后，debug APK 体积明显上升；
-  `ndk.abiFilters` 限定 arm64-v8a / x86_64，32 位设备无法安装本次构建产物。
+  `packaging.jniLibs.excludes` 已剔除 armeabi-v7a / x86，32 位设备会在安装阶段
+  报 `NO_MATCHING_ABIS`（不是装上后崩）。
 
 #### 异常的产品行为（本期按现状接受，不改造）
 
@@ -2160,7 +2269,7 @@ A1 → A3 → A4 → A5 → A6 顺序执行完毕 —— 自写首页正常显�
 | ~~Android 导出未实现~~ | `MediaExporter` 桌面走纯 Dart 复制，Kotlin 实现曾缺失 | **已化解（2026-11-12）**：`MediaExporterHandler.kt` 走 MediaStore；鸿蒙 ArkTS 仍缺，方案见 5.5.2 |
 | ffmpeg-kit 上游退役 | 官方 `com.arthenica:ffmpeg-kit-*` 2025-04-01 从 Maven Central 移除，直接加依赖会解析失败 | 改用持续维护的 `dev.ffmpegkit-maintained` 等价构建（同包名 / 同 API / LGPL）；版本固定为 8.1.9，不用动态版本号 |
 | GPL 许可风险 | `ffmpeg_kit_flutter_new` 主包是 Full GPL，含 x264/x265，闭源自用工具不适合链接 | 选 LGPL-3.0 的非 `-gpl` 变体 `ffmpeg-kit-full`，不引入 GPL 编码器 |
-| AAR ABI 不全 | 维护版只发布 arm64-v8a / x86_64，Flutter 默认会打全 ABI，32 位设备装上后 native 库缺失 | `ndk.abiFilters` 限定两个 ABI；`checkAvailable()` 加载失败返回 false 而非崩溃；32 位真机需自行编译 AAR |
+| AAR ABI 不全 | 维护版只发布 arm64-v8a / x86_64，Flutter 默认会打全 ABI，32 位设备装上后 native 库缺失 | `packaging.jniLibs.excludes` 剔掉 32 位目录（`ndk.abiFilters` 会被 flutter 覆盖，不生效）；`checkAvailable()` 加载失败返回 false 而非崩溃；32 位真机需自行编译 AAR |
 | Android 转封装失败无回退 | TS 里 AC-3 / MPEG-2 音频装不进 MP4，`-c copy` 会失败 | 桌面有「只重编音频」回退，Android 首版直接返回 ffmpeg 错误行；已知差异，后续按需补齐 |
 | ~~任务队列未持久化~~ | `DownloadQueue` 曾只在内存里保存 `List<DownloadTask>` | **已化解**（2026-11-12）：`DownloadStore` 落 `download_tasks.json`，位置必须是私有 files 目录而非 cache，见 5.6 / 5.7 |
 | 多页签 + 视频列表页卡顿 | 后台页签挂起、媒体播放互斥、抽帧串行 | 2026-11-13 调优，见上；后台页签的 JS 定时器仍在跑（Android 没有单实例暂停 API），彻底停只能销毁 WebView |

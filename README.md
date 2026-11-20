@@ -26,7 +26,8 @@
 | 嗅探（Windows） | CDP `Network.responseReceived` / `requestWillBeSent` 事件推送，非阻塞 | Windows 实测 |
 | 请求头补全 | 嗅探缓存头 + `pageUrl` 兜底 Referer + 按平台 UA + **按请求 URL 从 `CookieManager` 现取 Cookie**（Android） | 单测覆盖合并逻辑，待真机复验 403 站点 |
 | 资源面板 | 类型分组筛选、缩略图（图片 + 视频首帧）、文件名/大小展示、一键入队 | 桌面 Windows 实测；Android 抽帧待真机复验 |
-| 下载队列 | 并发 3、状态机、取消、重试、进度独立通知、单文件断流按 Range 续传 | 端到端测试 |
+| 下载队列 | 并发 3、状态机（含「等待网络」）、取消、重试、进度独立通知、单文件断流按 Range 续传 | 端到端测试 |
+| 断网自动续传 | 网络类失败不判死：任务转「等待网络」，按 3/10/20/30/60 秒递增重试，网络回来自己接着下 | 单元测试覆盖 |
 | 单文件下载 | `.part` 临时文件 + rename，中断不污染目标文件；断流后按 `Range` 续传，失败保留 `.part` | 端到端测试 |
 | 后台保活 | Android 下载期间挂 `dataSync` 前台服务（常驻通知），切后台/锁屏不再被冻结断流 | 编译通过，待真机复验 |
 | HLS | master 选最高码率、并发分片、AES-128 解密、fMP4 init 段处理、二进制合并、分片级续传 | 端到端测试 |
@@ -36,7 +37,10 @@
 | 转码（Android） | 原生 `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`（LGPL）经 MethodChannel 桥接，完成后自动写进 MediaStore | 已实现，待真机复验 MP3 落库 |
 | 转换页与持久化 | 独立「转换」页（入口在下载页 AppBar，带进行中角标）；任务落盘 `transcode_jobs.json`，重启后 pending 续跑、running 标中断；已完成项可「打开」产物 | 单元测试覆盖 |
 | 产物打开 / 分享 | 下载项菜单「打开」全平台可用（Android 走 FileProvider 的 `content://`，无需先导出）；「分享」仅 Android，拉起系统分享面板 | 编译 + 单元测试覆盖，待真机 |
+| 设置页 | 顶栏齿轮进入：HLS 分片并发（1~12，默认 6）、HTTP/SOCKS5 代理（留空走环境变量） | 编译 + 单测，待真机 |
 | 下载记录持久化 | `download_tasks.json`（私有 files 目录，不用 cache）；重启后历史还在，没下完的标「已中断，可重试」且不自动重跑 | 单元测试覆盖 |
+| 视频解析 | 首页「视频解析」入口：粘抖音分享链接，在**可见** WebView 里注入 hook，直接读页面自己拿到的 `play_addr`（完整 mp4 直链，支持 Range），一键入下载队列；12 秒无果自动改走分享页 SSR 数据，40 秒判失败 | 编译 + 单测覆盖，待真机 |
+| 常驻起始页 | 起始页是 pinned 页签：关不掉、不占 WebView 槽位、不计入页签数；在它上面输入地址会**新开页签**而不是就地跳转；关光网页面落回这里 | 单测覆盖 |
 
 Android 上转换产物会**自动**写进系统媒体库：MP3 落到 `音乐/SniffingBrowser`，
 MP4 落到 `视频/SniffingBrowser`。原因见下——应用只能直接写私有目录，而
@@ -81,14 +85,14 @@ bash ~/.devtools/get-ffmpeg.sh
 
 ```bash
 # 下载链路：单文件 / HLS 合并 / AES-128 解密（12 项）
-dart run tools/verify_download.dart
+SNIFF_E2E=1 flutter test test/download_real_e2e_test.dart
 
 # 队列与转码：需要网络，ffmpeg 测试还需要本机有 ffmpeg
 RUN_E2E=1 flutter test test/download_queue_e2e_test.dart
 RUN_E2E=1 flutter test test/transcode_e2e_test.dart
 ```
 
-`verify_download` 用本地 HTTP 服务提供 playlist，但分片是真实 CDN 的，所以解析、并发、解密、合并走的都是生产代码。AES 那组刻意不写 `IV`，逼着下载器按 RFC 8216 用媒体序列号推导——这处写错不会报错，只会产出乱码。
+`test/download_real_e2e_test.dart` 调的是 `tools/verify_download.dart` 里的 `run()`：用本地 HTTP 服务提供 playlist，但分片是真实 CDN 的，所以解析、并发、解密、合并走的都是生产代码。**它不能用 `dart run` 跑** —— 下载链路依赖 `flutter/foundation`，`dart run` 没有 `dart:ui`，连编译都过不去。AES 那组刻意不写 `IV`，逼着下载器按 RFC 8216 用媒体序列号推导——这处写错不会报错，只会产出乱码。
 
 ## 嗅探通道按平台分叉
 
@@ -149,8 +153,11 @@ RUN_E2E=1 flutter test test/transcode_e2e_test.dart
 含 libmp3lame）。官方 `com.arthenica:ffmpeg-kit-*` 已于 2025-04 从 Maven Central 移除，
 这里用社区维护的等价构建，**没有引入 Flutter pub 包**，所以 `pubspec.yaml` 不变。
 
-AAR 只发布 `arm64-v8a` / `x86_64`，因此 `ndk.abiFilters` 也限定为这两个 ABI。
-带 FFmpeg 的 debug APK 约 227MB（此前 184MB）。32 位设备需自行编译 AAR。
+AAR 只发布 `arm64-v8a` / `x86_64`，所以打包时用
+`packaging { jniLibs { excludes += "lib/armeabi-v7a/**" } }` 把 32 位目录剔掉
+（`defaultConfig.ndk.abiFilters` 不管用：`flutter build apk` 会透传
+`-Ptarget-platform` 覆盖它）。32 位设备会在安装阶段报 `NO_MATCHING_ABIS`，
+不会出现「装上了但一用转码就崩」。带 FFmpeg 的 debug APK 约 227MB。
 
 ## 未实现
 
@@ -159,7 +166,11 @@ AAR 只发布 `arm64-v8a` / `x86_64`，因此 `ndk.abiFilters` 也限定为这�
 - `ohos/` 平台目录（需要 Flutter-OH SDK 与 DevEco Studio，本机尚未配置）
 - Android TS→MP4 的「只重编音频」失败回退（桌面已有）
 - DASH 分片重组（当前直接提示不支持）
-- 代理支持：`dio` 默认不读 `HTTP_PROXY` 环境变量，需要走代理的网络环境目前直连
+- Android 系统级 Wi-Fi 代理：代理需要在设置页手动填，Dart 拿不到系统的代理配置
+- **微信视频号下载**：结构性不可行，不是工程量问题 —— 无网页播放页、链接与会话绑定、
+  私有 TLS + AES-128 加密 HLS。市面上的工具都是 PC 端 MITM，手机 App 做不到。
+  详见 `docs/tech-design.md` 5.9
+- 抖音之外的平台解析：B 站 / YouTube 是纯 DASH，需要 mpd 解析 + init 段 + 音视频合并
 
 ## 运行
 
@@ -203,6 +214,7 @@ lib/
     ├── browser/          # WebView 与地址栏
     ├── sniffer/          # 分类器、捕获服务、CDP 通道、资源面板
     ├── downloader/       # 下载队列、单文件下载、HLS 子模块
+    ├── resolver/         # 站内视频解析（抖音 hook + 解析页）
     ├── transcoder/       # 转换队列与引擎抽象
     └── diagnostics/      # 日志与通道计数器页面
 ```
@@ -212,7 +224,8 @@ lib/
 - 仍 403 的站点：请求头已经尽量补齐（含 CookieManager 现取 Cookie），但要求
   `Origin`、`Sec-Fetch-*`、动态签名或绑定客户端 TLS 指纹的站点仍可能拒绝
 - DRM（Widevine / FairPlay）内容无法处理
-- YouTube、B 站这类签名 + MSE 拼流的站点抓不到原始分片
+- YouTube、B 站这类签名 + MSE 拼流的站点抓不到原始分片（抖音走 5.9 的 hook 路线，
+  不走嗅探）
 - `blob:` 资源直接过滤，不显示
 - 鸿蒙适配版 `transparentBackground` 不生效、`onReceivedError` 有空指针问题，代码里已绕开
 
