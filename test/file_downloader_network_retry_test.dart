@@ -40,7 +40,7 @@ class _HandshakeAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-/// 一直 404，用来确认「站点拒绝」不会占用网络重试预算。
+/// 一直 404，用来确认「站点拒绝」不会被标成 network。
 class _NotFoundAdapter implements HttpClientAdapter {
   int calls = 0;
 
@@ -58,10 +58,7 @@ class _NotFoundAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-FileDownloader _downloader(
-  HttpClientAdapter adapter, {
-  List<Duration> networkWaits = const <Duration>[],
-}) {
+FileDownloader _downloader(HttpClientAdapter adapter) {
   final Dio dio = Dio(
     BaseOptions(
       validateStatus: (int? code) => code != null && code < 400,
@@ -69,7 +66,7 @@ FileDownloader _downloader(
     ),
   );
   dio.httpClientAdapter = adapter;
-  return FileDownloader(dio: dio, networkWaits: networkWaits);
+  return FileDownloader(dio: dio);
 }
 
 void main() {
@@ -85,77 +82,57 @@ void main() {
 
   final List<int> full = List<int>.generate(300, (int i) => i % 251);
 
-  test('握手被打断后自动重试接上，不需要用户点重试', () async {
-    final _HandshakeAdapter adapter = _HandshakeAdapter(full, failTimes: 2);
+  test('握手被打断后按 retries 自动重上一次，能自己接上', () async {
+    final _HandshakeAdapter adapter = _HandshakeAdapter(full, failTimes: 1);
 
-    await _downloader(
-      adapter,
-      networkWaits: const <Duration>[Duration.zero, Duration.zero],
-    ).download(url: 'https://s.surrit.com/v.mp4', target: File('${dir.path}/v.mp4'));
+    await _downloader(adapter).download(
+      url: 'https://s.surrit.com/v.mp4',
+      target: File('${dir.path}/v.mp4'),
+    );
 
-    expect(adapter.calls, 3);
+    expect(adapter.calls, 2);
     expect(await File('${dir.path}/v.mp4').readAsBytes(), full);
   });
 
-  test('握手失败报出「握手阶段被中断」，不再是干巴巴的未知错误', () async {
+  test('握手失败报出「握手阶段被中断」，并标记为网络类', () async {
     final _HandshakeAdapter adapter = _HandshakeAdapter(full, failTimes: 99);
 
     await expectLater(
       _downloader(adapter).download(
         url: 'https://s.surrit.com/v.mp4',
         target: File('${dir.path}/v.mp4'),
+        retries: 0,
       ),
       throwsA(
-        isA<DownloadException>().having(
-          (DownloadException e) => e.message,
-          'message',
-          allOf(contains('握手'), contains('HandshakeException')),
-        ),
+        isA<DownloadException>()
+            .having(
+              (DownloadException e) => e.message,
+              'message',
+              allOf(contains('握手'), contains('HandshakeException')),
+            )
+            // 队列靠这个标记决定「等网络」还是「直接失败」
+            .having((DownloadException e) => e.network, 'network', isTrue),
       ),
     );
-    expect(adapter.calls, 1);
   });
 
-  test('网络重试预算用尽才放弃，不会无限重试', () async {
-    final _HandshakeAdapter adapter = _HandshakeAdapter(full, failTimes: 99);
-    const List<Duration> waits = <Duration>[Duration.zero, Duration.zero];
-
-    await expectLater(
-      _downloader(adapter, networkWaits: waits).download(
-        url: 'https://s.surrit.com/v.mp4',
-        target: File('${dir.path}/v.mp4'),
-      ),
-      throwsA(isA<DownloadException>()),
-    );
-    // 首轮 + 两次等待重试
-    expect(adapter.calls, 3);
-  });
-
-  test('404 不走网络预算，仍按 retries 快速失败', () async {
+  test('404 不会被标成网络类，仍是快速失败', () async {
     final _NotFoundAdapter adapter = _NotFoundAdapter();
 
     await expectLater(
-      _downloader(
-        adapter,
-        // 给足网络预算：如果 404 被误判成网络错误，请求次数会变成 6 次
-        networkWaits: const <Duration>[
-          Duration.zero,
-          Duration.zero,
-          Duration.zero,
-          Duration.zero,
-          Duration.zero,
-        ],
-      ).download(
+      _downloader(adapter).download(
         url: 'https://s.surrit.com/v.mp4',
         target: File('${dir.path}/v.mp4'),
         retries: 2,
       ),
       throwsA(
-        isA<DownloadException>().having(
-          (DownloadException e) => e.message,
-          'message',
-          contains('404'),
-        ),
+        isA<DownloadException>()
+            .having(
+              (DownloadException e) => e.message,
+              'message',
+              contains('404'),
+            )
+            .having((DownloadException e) => e.network, 'network', isFalse),
       ),
     );
     expect(adapter.calls, 3);

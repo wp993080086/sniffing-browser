@@ -52,11 +52,18 @@ class HlsDownloadResult {
 /// 流程：拉 playlist → 选码率 → 逐片下载 → AES-128 解密 → 二进制合并。
 /// 不做 TS→MP4 转封装，那是 TranscodeQueue 的事。
 class HlsDownloader {
-  HlsDownloader({FileDownloader? downloader, this.parser = const M3u8Parser()})
-    : _downloader = downloader ?? FileDownloader();
+  HlsDownloader({
+    FileDownloader? downloader,
+    this.parser = const M3u8Parser(),
+    int Function()? segmentConcurrency,
+  }) : _downloader = downloader ?? FileDownloader(),
+       _segmentConcurrency = segmentConcurrency;
 
   final FileDownloader _downloader;
   final M3u8Parser parser;
+
+  /// 分片并发数，取设置页里的值。用回调而不是固定值：改完设置不用重建下载器。
+  final int Function()? _segmentConcurrency;
 
   /// 已下载的密钥，按 URL 缓存。同一路流的几百个分片共用一个 key。
   final Map<String, Uint8List> _keyCache = <String, Uint8List>{};
@@ -145,9 +152,10 @@ class HlsDownloader {
       }
     }
 
-    final int concurrency = total < AppConstants.maxConcurrentSegments
-        ? total
-        : AppConstants.maxConcurrentSegments;
+    // 并发数来自设置页。下限兜到 1：0 会让 Future.wait 空跑，整个任务卡死。
+    final int limit = _segmentConcurrency?.call() ??
+        AppConstants.maxConcurrentSegments;
+    final int concurrency = total < limit ? total : limit;
     await Future.wait(<Future<void>>[
       for (int i = 0; i < concurrency; i++) worker(),
     ]);

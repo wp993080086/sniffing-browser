@@ -56,8 +56,9 @@ class DownloadTile extends ConsumerWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(2),
                 child: LinearProgressIndicator(
+                  // 等待网络时进度冻在原处：给不确定进度条反而像是在重新下载。
                   value:
-                      status == DownloadStatus.running ||
+                      status.isRunningOrWaiting ||
                           status == DownloadStatus.completed
                       ? task.progress.value
                       : (status == DownloadStatus.failed ? 0 : null),
@@ -116,6 +117,11 @@ class DownloadTile extends ConsumerWidget {
         final int percent = (task.progress.value * 100).round();
         final String size = FormatUtil.bytes(task.totalBytes);
         return '$percent% · $size';
+      case DownloadStatus.waitingNetwork:
+        // 必须写清「会自动重试」，否则这条文案看起来和卡死没区别。
+        return task.networkWaitSeconds > 0
+            ? '等待网络，${task.networkWaitSeconds} 秒后自动重试'
+            : '等待网络，恢复后自动继续';
       case DownloadStatus.paused:
         return '已暂停';
       case DownloadStatus.completed:
@@ -208,6 +214,7 @@ class _Menu extends ConsumerWidget {
       padding: EdgeInsets.zero,
       itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
         if (task.status == DownloadStatus.running ||
+            task.status == DownloadStatus.waitingNetwork ||
             task.status == DownloadStatus.pending)
           const PopupMenuItem<String>(value: 'cancel', child: Text('取消')),
         if (task.status.canRetry)

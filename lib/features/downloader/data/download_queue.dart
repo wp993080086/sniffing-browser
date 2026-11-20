@@ -37,13 +37,21 @@ class DownloadQueue extends ChangeNotifier {
     TranscodeQueue? transcoder,
     List<MediaItem> Function()? poolSupplier,
     DownloadStore? store,
+    int Function()? segmentConcurrency,
+    List<Duration> networkWaits = defaultNetworkWaits,
   }) : _downloader = downloader ?? FileDownloader(),
        _transcoder = transcoder,
        _poolSupplier = poolSupplier,
-       _store = store {
+       _store = store,
+       _networkWaits = networkWaits {
     // HLS 缺省复用同一个 downloader：Cookie / 超时 / 重试策略必须和单文件
     // 一致，否则会出现「playlist 拿得到、分片 403」这种难查的差异。
-    _hls = hlsDownloader ?? HlsDownloader(downloader: _downloader);
+    _hls =
+        hlsDownloader ??
+        HlsDownloader(
+          downloader: _downloader,
+          segmentConcurrency: segmentConcurrency,
+        );
   }
 
   final FileDownloader _downloader;
@@ -54,6 +62,21 @@ class DownloadQueue extends ChangeNotifier {
 
   /// 合并音视频用。缺省时退化为「只下载不合并」，不影响单轨下载。
   final TranscodeQueue? _transcoder;
+
+  /// 断网后的重试节奏，第 4 次之后固定一分钟一次。见 [defaultNetworkWaits]。
+  final List<Duration> _networkWaits;
+
+  /// 断网重试的等待表。
+  ///
+  /// 先密后疏：早期断流多半几秒就恢复，等一分钟纯粹浪费；真长时间断网
+  /// （熄屏、进隧道）再怎么等也都是等，一分钟一次足够，不烧电。
+  static const List<Duration> defaultNetworkWaits = <Duration>[
+    Duration(seconds: 3),
+    Duration(seconds: 10),
+    Duration(seconds: 20),
+    Duration(seconds: 30),
+    Duration(seconds: 60),
+  ];
 
   /// 拿当前页面已嗅探到的资源。
   ///
@@ -85,6 +108,7 @@ class DownloadQueue extends ChangeNotifier {
       .where(
         (DownloadTask t) =>
             t.status == DownloadStatus.running ||
+            t.status == DownloadStatus.waitingNetwork ||
             t.status == DownloadStatus.pending,
       )
       .length;
@@ -231,7 +255,9 @@ class DownloadQueue extends ChangeNotifier {
     final DownloadTask? task = _findById(taskId);
     if (task == null) return;
 
-    if (task.status == DownloadStatus.running) {
+    if (task.status.isRunningOrWaiting) {
+      // 等待网络时 token 还在：取消要能打断那个最长一分钟的 sleep，
+      // 否则用户点了取消，还得干等满一轮才变成「已取消」。
       _tokens[taskId]?.cancel('user');
     } else if (task.status == DownloadStatus.pending) {
       task.setStatus(DownloadStatus.canceled);
@@ -372,13 +398,7 @@ class DownloadQueue extends ChangeNotifier {
     _tokens[task.id] = token;
 
     try {
-      if (task.type == MediaType.hls) {
-        await _runHls(task, token);
-      } else if (task.type == MediaType.dash) {
-        throw DownloadException('暂不支持 DASH 分片重组，可等待后续版本');
-      } else {
-        await _runFile(task, token);
-      }
+      await _runWithNetworkRecovery(task, token);
     } on DownloadException catch (e) {
       if (token.isCancelled) {
         task.setStatus(DownloadStatus.canceled);
@@ -402,6 +422,76 @@ class DownloadQueue extends ChangeNotifier {
       _schedulePersist();
       _pump();
     }
+  }
+
+  /// 网络断了不放弃：置为「等待网络」，隔一会儿自己重来，直到成功或被取消。
+  ///
+  /// 为什么放在任务层而不是下载器里：只有这里能改状态、能在卡片上写「等待网络，
+  /// 30 秒后重试」。藏在 IO 层里等，用户看到的是进度冻住、像卡死，和真的挂了
+  /// 区分不开。
+  ///
+  /// 不设总时长上限：熄屏、进电梯、过隧道都可能是几分钟级，断在哪一秒不由我们
+  /// 决定。用户随时能取消，卡片上也一直显示在等，不存在「悄悄挂死」。
+  Future<void> _runWithNetworkRecovery(
+    DownloadTask task,
+    CancelToken token,
+  ) async {
+    int round = 0;
+    while (true) {
+      try {
+        await _runOnce(task, token);
+        return;
+      } on DownloadException catch (e) {
+        // 站点拒绝（403 / 404）、内容不对、已取消：等多久都不会变好，直接失败。
+        if (!e.network || token.isCancelled) rethrow;
+
+        final Duration wait = _networkWaitFor(round);
+        round++;
+        task.waitForNetwork(wait.inSeconds);
+        _safeNotify();
+        logWarn(
+          'Download',
+          '网络中断，${wait.inSeconds}s 后自动重试'
+          '（第 $round 次）: ${task.fileName}',
+        );
+
+        await _sleepUnlessCancelled(wait, token);
+        if (token.isCancelled) throw DownloadException('已取消');
+
+        task.setStatus(DownloadStatus.running);
+        _safeNotify();
+      }
+    }
+  }
+
+  Future<void> _runOnce(DownloadTask task, CancelToken token) async {
+    if (task.type == MediaType.hls) {
+      await _runHls(task, token);
+    } else if (task.type == MediaType.dash) {
+      throw DownloadException('暂不支持 DASH 分片重组，可等待后续版本');
+    } else {
+      await _runFile(task, token);
+    }
+  }
+
+  /// 断网后的第 [round] 次重试该等多久，超出表长就按最后一档。
+  Duration _networkWaitFor(int round) {
+    if (_networkWaits.isEmpty) return Duration.zero;
+    final int index = round < _networkWaits.length
+        ? round
+        : _networkWaits.length - 1;
+    return _networkWaits[index];
+  }
+
+  /// 可被取消打断的等待，否则点了取消还要干等满 60 秒。
+  static Future<void> _sleepUnlessCancelled(
+    Duration wait,
+    CancelToken token,
+  ) {
+    return Future.any<void>(<Future<void>>[
+      Future<void>.delayed(wait),
+      token.whenCancel.then<void>((_) {}),
+    ]);
   }
 
   /// 下载开始时再查一次配对。

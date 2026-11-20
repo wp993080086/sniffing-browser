@@ -64,6 +64,9 @@ class DownloadTask {
   String? error;
   String? savedPath;
   String? container; // ts / mp4 / mp3 ...
+
+  /// 「等待网络」状态下，下一次自动重试的间隔（秒）。
+  int networkWaitSeconds = 0;
   bool needsRemux = false;
 
   ExportStatus exportStatus = ExportStatus.notExported;
@@ -108,6 +111,18 @@ class DownloadTask {
   void setSpeed(double bytesPerSecond) {
     if (_disposed) return;
     speed.value = bytesPerSecond;
+  }
+
+  /// 进入「等待网络」，[nextRetrySeconds] 是下一次自动重试的间隔。
+  ///
+  /// 不写 [error]：这不是错误，等下去多半会自己好；把原因挂在失败字段上，
+  /// 界面和恢复逻辑都会把它当失败处理。
+  void waitForNetwork(int nextRetrySeconds) {
+    if (_disposed) return;
+    networkWaitSeconds = nextRetrySeconds;
+    setStatus(DownloadStatus.waitingNetwork);
+    // 速度必须归零，否则卡片上会挂着断网前最后一刻的 MB/s。
+    speed.value = 0;
   }
 
   void fail(String message) {

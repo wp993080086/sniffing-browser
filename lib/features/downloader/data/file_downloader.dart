@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/logging/app_log.dart';
 import '../../../core/platform/browser_headers.dart';
 import '../../../core/platform/platform_info.dart';
+import '../../../core/platform/proxy_rule.dart';
 import '../../sniffer/domain/media_type.dart';
 import 'media_validator.dart';
 
@@ -24,41 +26,23 @@ typedef CookieLoader = Future<String?> Function(String url);
 /// 先写 `.part` 再 rename —— 中途失败不会留下一个看似完整的半截文件，
 /// 这对“下载完成后自动导出到相册”尤其重要。
 class FileDownloader {
-  FileDownloader({
-    Dio? dio,
-    CookieLoader? cookieLoader,
-    List<Duration> networkWaits = defaultNetworkWaits,
-  }) : _dio = dio ?? createDio(),
-       _cookieLoader = cookieLoader,
-       _networkWaits = networkWaits;
+  FileDownloader({Dio? dio, CookieLoader? cookieLoader})
+    : _dio = dio ?? createDio(),
+      _cookieLoader = cookieLoader;
 
   final Dio _dio;
 
   /// 缺省为 null（纯 Dart 环境、单测、桌面不需要）：此时行为与之前完全一致。
   final CookieLoader? _cookieLoader;
 
-  /// 网络类失败的等待表。见 [defaultNetworkWaits]。
-  final List<Duration> _networkWaits;
-
-  /// 网络断了之后的重试节奏，累计约 2 分钟。
+  /// 建一个默认配置的 [Dio]。
   ///
-  /// 熄屏、切 Wi-Fi/蜂窝、进电梯都属于「暂时没有网络」，不是「站点拒绝」：
-  /// 站点多久都不会自己变好，网络却能。原先把这类失败和 403 共用 `retries = 2`，
-  /// 几百毫秒到十几秒就把机会用完了 —— 用户侧看到的就是「熄屏回来报错，
-  /// 点一下重试又好了」。把等待拉到分钟级，多数情况下能在恢复的瞬间自己接上，
-  /// 不需要人工介入。
-  static const List<Duration> defaultNetworkWaits = <Duration>[
-    Duration(seconds: 2),
-    Duration(seconds: 5),
-    Duration(seconds: 10),
-    Duration(seconds: 15),
-    Duration(seconds: 20),
-    Duration(seconds: 30),
-    Duration(seconds: 30),
-  ];
-
-  static Dio createDio() {
-    return Dio(
+  /// [proxy] 为 null 时与以前完全一致。传了就在每次连接前问一次当前代理：
+  /// Dart 的 `HttpClient` 不会自动读系统代理，桌面端 `HTTP_PROXY` 也就一直
+  /// 没生效（Android 的 Wi-Fi 代理同理，走设置页手动填）。用回调而不是固定值，
+  /// 是为了让设置页改完立刻对**新请求**生效，不用重建下载器。
+  static Dio createDio({ProxyRule Function()? proxy}) {
+    final Dio dio = Dio(
       BaseOptions(
         connectTimeout: AppConstants.connectTimeout,
         receiveTimeout: AppConstants.receiveTimeout,
@@ -69,6 +53,16 @@ class FileDownloader {
         responseType: ResponseType.bytes,
       ),
     );
+    if (proxy != null) {
+      dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () {
+          final HttpClient client = HttpClient();
+          client.findProxy = (Uri uri) => proxy().directiveFor(uri);
+          return client;
+        },
+      );
+    }
+    return dio;
   }
 
   /// 下载到 [target]。返回最终文件。
@@ -77,8 +71,8 @@ class FileDownloader {
   /// 只认 206 且 `Content-Range` 起点对得上 —— 有的站点忽略 Range 直接回 200，
   /// 那种情况 append 会把文件写坏，只能丢掉重来。
   ///
-  /// 失败重试分两套预算：网络类（断网 / 熄屏断流 / TLS 握手中断）按
-  /// [defaultNetworkWaits] 等到分钟级，站点类（403 / 404 / 5xx）走 [retries]。
+  /// 网络类失败在这里只做短重试（2s / 6s），**长时间的等待交给调用方**：
+  /// 任务级「等网络」要落成可见状态，藏在 IO 层等两分钟，界面就只能干挂着。
   Future<File> download({
     required String url,
     required File target,
@@ -125,7 +119,12 @@ class FileDownloader {
     }
 
     await _explain403(last, url, plans.last);
-    throw DownloadException(_describeError(last), url: url, cause: last);
+    throw DownloadException(
+      _describeError(last),
+      url: url,
+      cause: last,
+      network: last != null && _isNetworkFailure(last),
+    );
   }
 
   /// 单套请求头的下载循环。失败时抛最后一个 [DioException]，由外层决定要不要换头。
@@ -169,9 +168,7 @@ class FileDownloader {
     }
 
     Object? lastError;
-    int networkWaits = 0;
-    int retriesUsed = 0;
-    while (true) {
+    for (int attempt = 0; attempt <= retries; attempt++) {
       try {
         int offset = await _partLength(part);
         Response<dynamic> response = await fetch(offset);
@@ -212,24 +209,10 @@ class FileDownloader {
         // 416：残留的 .part 比资源本身还长（地址换过 / 文件被改过），
         // 不删掉的话每次续传都会被拒，只能从头下。
         if (e.response?.statusCode == 416) await _deleteQuietly(part);
-
-        final ({Duration wait, bool network})? next = _nextWait(
-          error: e,
-          networkWaits: networkWaits,
-          retriesUsed: retriesUsed,
-          retries: retries,
-          baseMs: 400,
-        );
-        if (next == null) break;
-        if (next.network) {
-          networkWaits++;
-          _logNetworkWait(url, next.wait, networkWaits, _networkWaits.length);
-        } else {
-          retriesUsed++;
-        }
-        // 等待期间用户可能点了取消，别再白等一轮才撞上 cancel。
+        if (attempt == retries) break;
+        // 等待期间用户可能点了取消，别白等一轮再撞上 cancel。
         if (cancelToken?.isCancelled ?? false) break;
-        await Future<void>.delayed(next.wait);
+        await Future<void>.delayed(_backoff(e, attempt, 400));
       }
     }
 
@@ -303,7 +286,12 @@ class FileDownloader {
     }
 
     await _explain403(last, url, plans.last);
-    throw DownloadException(_describeError(last), url: url, cause: last);
+    throw DownloadException(
+      _describeError(last),
+      url: url,
+      cause: last,
+      network: last != null && _isNetworkFailure(last),
+    );
   }
 
   Future<List<int>> _fetchBytesOnce({
@@ -313,9 +301,7 @@ class FileDownloader {
     required int retries,
   }) async {
     Object? lastError;
-    int networkWaits = 0;
-    int retriesUsed = 0;
-    while (true) {
+    for (int attempt = 0; attempt <= retries; attempt++) {
       try {
         final Response<List<int>> response = await _dio.get<List<int>>(
           url,
@@ -326,22 +312,9 @@ class FileDownloader {
       } on DioException catch (e) {
         lastError = e;
         if (CancelToken.isCancel(e)) rethrow;
-        final ({Duration wait, bool network})? next = _nextWait(
-          error: e,
-          networkWaits: networkWaits,
-          retriesUsed: retriesUsed,
-          retries: retries,
-          baseMs: 300,
-        );
-        if (next == null) break;
-        if (next.network) {
-          networkWaits++;
-          _logNetworkWait(url, next.wait, networkWaits, _networkWaits.length);
-        } else {
-          retriesUsed++;
-        }
+        if (attempt == retries) break;
         if (cancelToken?.isCancelled ?? false) break;
-        await Future<void>.delayed(next.wait);
+        await Future<void>.delayed(_backoff(e, attempt, 300));
       }
     }
     _logTimeout(lastError, url);
@@ -556,42 +529,21 @@ class FileDownloader {
 
   /// 失败后的等待时长。
   ///
-  /// 连不上（超时 / 连接失败）基本是站点限流或线路抖动，几百毫秒后重来只会
-  /// 立刻再撞一次；这类错误要多等一会儿才有机会恢复。`unknown` 也归进来：
-  /// 在下载路径上它几乎都是响应体下到一半被断开，成因同样是限流或断线。
+  /// 网络类（超时 / 连接失败 / 断流）只做两次很短的退避：真正「按分钟等网络
+  /// 恢复」的是下载队列，那里有可见状态。这里再拉长只会让「等待网络」晚几秒
+  /// 出现在界面上，用户看到的是「点了下载没反应」。
   ///
-  /// 注意这里只管「非网络类」以外的短退避；真正的网络中断走 [_nextWait] 的
-  /// 长等待表，两者预算互不占用。
+  /// 站点类（403 / 404 / 5xx）仍按 [baseMs] 线性递增。
   static Duration _backoff(DioException error, int attempt, int baseMs) {
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
       case DioExceptionType.unknown:
-        return Duration(seconds: 2 + attempt * 4);
+        return Duration(milliseconds: 500 + attempt * 1000);
       default:
         return Duration(milliseconds: baseMs * (attempt + 1));
     }
-  }
-
-  /// 这次失败要不要再试；返回 null 表示放弃。
-  ///
-  /// 网络类失败和「站点拒绝」分开计预算：
-  /// - 网络类：最多等完 [_networkWaits] 整张表，越等越久，给网络恢复留时间；
-  /// - 其余（403 / 404 / 5xx）：沿用 `retries` 的短退避，等多久都一样。
-  ({Duration wait, bool network})? _nextWait({
-    required DioException error,
-    required int networkWaits,
-    required int retriesUsed,
-    required int retries,
-    required int baseMs,
-  }) {
-    if (_isNetworkFailure(error)) {
-      if (networkWaits >= _networkWaits.length) return null;
-      return (wait: _networkWaits[networkWaits], network: true);
-    }
-    if (retriesUsed >= retries) return null;
-    return (wait: _backoff(error, retriesUsed, baseMs), network: false);
   }
 
   /// 是不是「网络本身断了」而不是「站点拒绝了这次请求」。
@@ -600,6 +552,8 @@ class FileDownloader {
   /// 挂的是 [SocketException] / [HandshakeException] / [TlsException]。
   /// 熄屏时系统回收 socket、切网时 TLS 握手被打断，都会走到这里；而 4xx/5xx
   /// 是 [DioExceptionType.badResponse]，不在此列。
+  ///
+  /// 结论会带到 [DownloadException.network] 上，由下载队列决定「等网络还是放弃」。
   static bool _isNetworkFailure(DioException error) {
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
@@ -622,26 +576,6 @@ class FileDownloader {
             raw.contains('HandshakeException');
       default:
         return false;
-    }
-  }
-
-  /// 记录「正在等网络恢复」。
-  ///
-  /// 首轮用 warn：正常网络下不该出现，出现就说明刚才断过。之后转 debug，
-  /// 否则一次熄屏会被 6 个并发分片各刷 7 条。
-  static void _logNetworkWait(
-    String url,
-    Duration wait,
-    int round,
-    int total,
-  ) {
-    final String host = Uri.tryParse(url)?.host ?? url;
-    final String message =
-        '网络中断，${wait.inSeconds}s 后重试（$round/$total）$host';
-    if (round == 1) {
-      logWarn('Download', message);
-    } else {
-      logDebug('Download', message);
     }
   }
 
@@ -741,11 +675,17 @@ class FileDownloader {
 
 /// 下载异常。带 URL，日志里能直接定位到哪个资源失败。
 class DownloadException implements Exception {
-  DownloadException(this.message, {this.url, this.cause});
+  DownloadException(this.message, {this.url, this.cause, this.network = false});
 
   final String message;
   final String? url;
   final Object? cause;
+
+  /// 失败原因是「网络断了」而不是「站点拒绝 / 内容不对」。
+  ///
+  /// 下载队列据此决定要不要等网络恢复再自动重试：断网等一会儿就能好，
+  /// 403 / 404 等多久都一样。判定见 [FileDownloader._isNetworkFailure]。
+  final bool network;
 
   @override
   String toString() => url == null ? message : '$message ($url)';
