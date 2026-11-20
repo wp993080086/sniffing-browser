@@ -260,6 +260,9 @@ class _Menu extends ConsumerWidget {
             ..showSnackBar(
               SnackBar(
                 content: Text('已加入转换队列：${job.displayName}'),
+                // 带 action 时 Flutter 默认 persist = true，提示会一直挂着不消失。
+                persist: false,
+                duration: const Duration(seconds: 4),
                 // 进度在独立的转换页，给一条直达入口，别让人回来找那行小字。
                 action: SnackBarAction(
                   label: '查看进度',

@@ -242,8 +242,27 @@ class _WebViewHostState extends ConsumerState<WebViewHost> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text('已在后台页签打开：$host'),
+          // Flutter 3.44 的 `SnackBar.persist` 默认值就是 `action != null`：
+          // 带按钮的提示**永远不会自己消失**，只能点一下。这里显式关掉。
+          persist: false,
           duration: const Duration(seconds: 4),
+          content: Row(
+            children: <Widget>[
+              Expanded(child: Text('已在后台页签打开：$host')),
+              // 内置关闭键固定 24px，且不支持放大，自己放一个更大的。
+              IconButton(
+                icon: const Icon(Icons.close),
+                iconSize: 28,
+                // M3 的 SnackBar 是深色底，IconButton 默认取 onSurface 会看不见。
+                color: Theme.of(context).colorScheme.onInverseSurface,
+                tooltip: '关闭提示',
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                onPressed: () => messenger.hideCurrentSnackBar(),
+              ),
+            ],
+          ),
           action: SnackBarAction(
             label: '查看',
             onPressed: () => _tabs.activateTab(tab.id),
