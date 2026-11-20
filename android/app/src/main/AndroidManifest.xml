@@ -1,5 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 下载期间挂常驻前台服务：否则切后台会被系统冻结、socket 被回收，
+         表现就是下载到一半报连接中断。API 34+ 需要单独声明 dataSync 类型权限。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- Android 13+ 前台服务的通知要这条权限才显示得出来，拒绝了也不影响下载。 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- 导出到系统媒体库：API 29+ 走 MediaStore 无需权限；此处只给 API <= 28 的兜底路径。 -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -33,6 +39,12 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- 下载期间的常驻前台服务。真正干活的是 Dart 侧，这里只负责把进程
+             钉在前台状态，避免被系统冻结。 -->
+        <service
+            android:name=".DownloadForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
         <!-- 下载产物在私有目录，打开 / 分享时要交给系统或其他应用，
              只能通过 FileProvider 换成带读授权的 content:// 再用。 -->
         <provider

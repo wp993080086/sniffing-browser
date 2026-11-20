@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/logging/app_log.dart';
+import '../../../core/platform/download_foreground_service.dart';
 import '../../../core/platform/media_exporter.dart';
 import '../../../core/platform/storage_paths.dart';
 import '../../../core/utils/hash_util.dart';
@@ -334,6 +335,19 @@ class DownloadQueue extends ChangeNotifier {
       if (next == null) break;
       unawaited(_start(next));
     }
+    _syncForegroundService();
+  }
+
+  /// 有任务在跑就挂前台服务，跑完就撤。
+  ///
+  /// 放在 [_pump] 里而不是 `_start` 的 finally 里：调度是「一条结束立刻起下一条」，
+  /// 在 finally 里撤会让下一轮又马上挂上，通知跟着闪一下。
+  void _syncForegroundService() {
+    if (_runningCount > 0) {
+      unawaited(DownloadForegroundService.start());
+    } else {
+      unawaited(DownloadForegroundService.stop());
+    }
   }
 
   DownloadTask? _nextPending() {
@@ -638,6 +652,9 @@ class DownloadQueue extends ChangeNotifier {
       token.cancel('dispose');
     }
     _tokens.clear();
+    // 任务 settle 之后不会再把 _pump 跑起来（_disposed 拦住了），
+    // 前台服务只能在这里撤，否则会留一条永远不消失的通知。
+    unawaited(DownloadForegroundService.stop());
     for (final DownloadTask task in _tasks) {
       task.dispose();
     }

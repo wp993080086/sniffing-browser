@@ -19,11 +19,15 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(messenger, THUMBNAILER_CHANNEL)
             .setMethodCallHandler(ThumbnailBridge())
+
+        MethodChannel(messenger, DOWNLOAD_SERVICE_CHANNEL)
+            .setMethodCallHandler(DownloadServiceBridge(this))
     }
 
     private companion object {
         const val MEDIA_EXPORTER_CHANNEL = "sniffing_browser/media_exporter"
         const val TRANSCODER_CHANNEL = "sniffing_browser/transcoder"
         const val THUMBNAILER_CHANNEL = "sniffing_browser/thumbnailer"
+        const val DOWNLOAD_SERVICE_CHANNEL = "sniffing_browser/download_service"
     }
 }
