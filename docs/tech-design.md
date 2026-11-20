@@ -44,7 +44,7 @@ Android MediaStore 导出、Android 原生 FFmpegKit 转码（TS→MP4 / 抽 MP3
 | --- | --- | --- |
 | 图片 / 音频 / 普通视频文件嗅探与下载 | 支持 | 已落地，Windows 实测 |
 | HLS（m3u8）流媒体合并下载 | 支持 | 已落地，端到端测试覆盖 |
-| 分片级续传、多分片并发 | 支持 | 任务并发 3、分片并发 6；单文件字节级续传未实现 |
+| 分片级续传、多分片并发 | 支持 | 任务并发 3、分片并发 6；单文件按 Range 字节级续传 |
 | TS 转 MP4 | 支持（FFmpeg 无损 remux） | 桌面已实测；Android 走原生 FFmpegKit，待真机验证 |
 | 音频转 MP3 | 支持（FFmpeg 重编码，有损） | 桌面已实测；Android 走原生 FFmpegKit 的 libmp3lame，待真机验证 |
 | DASH（mpd）分片重组 | 不支持 | 不解析 MPD；仅嗅探到的完整 `.m4s` 分片可下载，并自动配对音视频合并，见 5.8 |
@@ -664,12 +664,14 @@ class FileDownloader {
 **实际要点**（`lib/features/downloader/data/file_downloader.dart`）：
 
 - 先写 `.part` 临时文件，成功后 `rename` 成目标文件，中断不污染目标文件
-- **单文件不支持字节级 Range 续传**；断点续传只在 HLS 分片级实现
-  （`.part` 已存在且非空就跳过，`#EXT-X-BYTERANGE` 用 `Range: bytes=start-end`）
+- **单文件支持字节级 Range 续传**（2026-11-20 起，见 5.3.3）：`.part` 里已有多少
+  字节就往 `bytes=<offset>-` 接着要，失败也不删 `.part`，用户点重试就是续传；
+  HLS 则是分片级续传（`.part` 已存在且非空就跳过，`#EXT-X-BYTERANGE` 用
+  `Range: bytes=start-end`）
 - 并发上限 3（`AppConstants.maxConcurrentDownloads`）
 - 失败共 3 次尝试（`retries = 2`）。普通错误退避 400 / 800 / 1200ms 线性递增；
-  **超时类（连接 / 发送 / 接收）单独放宽到 2s / 6s** —— 这类失败基本是站点限流
-  或隧道抖动，几百毫秒后重来只会立刻再撞一次
+  **超时类（连接 / 发送 / 接收）与 `unknown` 单独放宽到 2s / 6s** —— 这类失败
+  基本是站点限流、断流或隧道抖动，几百毫秒后重来只会立刻再撞一次
 - 文件名经 `StoragePaths.uniqueFile()` 消毒（Windows 非法字符 / 保留名 / 长度上限），
   重名时追加 ` (1)`、` (2)`
 
@@ -731,6 +733,57 @@ TLS 指纹**：`dart:io` 的指纹不是 Chrome，带着 Chrome 的 UA 出去就
 - 文案明确指路：「稍后重试，或回原页面重新嗅探」，避免用户在死地址上反复点。
 
 仍然坚持**不自动重跑**：签名会过期，自动重跑只会刷一屏 403 并白耗流量。
+
+#### 5.3.3 「未知错误」= 响应体下到一半连接断了（2026-11-20）
+
+用户反馈：下载一会儿报「未知错误 (https://surrit.com/...)」，重试还是同一条。链路是这样断的：
+
+1. dio 的 `receiveTimeout` **只包住「等响应头」**（`dio 5.11.1` `io_adapter.dart`：
+   `request.close()` 外面套 timeout，响应流原样交给调用方）。body 阶段没有任何
+   看门狗，卡住不会超时，只会一直挂着。
+2. body 中途断掉时抛的是原始 `SocketException` / `HttpException`，dio 在
+   `download` 的 `onError` 里用 `assureDioException` 包成 `type = unknown`、
+   `message = null` 的 `DioException`，真实原因落在 `error.error` 上。
+3. 旧代码取 `error.message ?? '未知错误'` —— 所以只剩四个字，等于没报错。
+4. 旧的重试**其实跑过**（`retries = 2`），但 `deleteOnError: true` 加上每次进
+   `_downloadOnce` 先删 `.part`，三次都从 0 开始。站点按连接时长 / 字节数掐断时，
+   三次断在同一处，用户看到的就是「过一会儿报错，点重试也没用」。
+
+改法：
+
+- `unknown` 分支带出 `error.error` 原文；`Connection closed` / `Connection reset` /
+  `Broken pipe` 统一说成「连接被中途断开，已下的部分会保留；重试可接着下」；
+- 失败不删 `.part`，下一次请求带 `Range: bytes=<已有字节>-`，`fileAccessMode: append`；
+- 服务端忽略 Range 回 200 全量时，append 会产出「大小正常、内容错位」的坏文件，
+  所以只认 206 且 `Content-Range` 起点对得上，否则丢掉 `.part` 重下一次；
+- 416（`.part` 比资源本身还长）直接清掉重下，避免每次续传都被拒；
+- 日志补 `请求失败 unknown <host> <底层异常>`，能分清「对方主动断」与「系统回收连接」。
+
+**切后台是不是诱因**：是常见诱因之一，但不是全部。清单里原本没有任何前台服务
+（`AndroidManifest.xml` 只有 Activity + FileProvider），Android 10 / MIUI 这类 ROM
+会冻结后台进程并回收 socket，body 当场断掉 —— 正是上面第 2 条的表现。前台不动时，
+CDN 掐长连接、Wi-Fi 与蜂窝切换也会走到同一条路径。后台冻结已在 5.3.4 根治。
+
+#### 5.3.4 后台保活：下载期间的前台服务（2026-11-20）
+
+`android/app/src/main/kotlin/com/wp/sniffing_browser/DownloadForegroundService.kt`：
+
+- 只做一件事 —— `startForeground` 把进程钉在前台状态，**真正的下载仍在 Dart 侧**，
+  不搬进 Service（搬了要跨进程传 CancelToken / 进度 / 文件句柄，没有收益）；
+- 调度在 `DownloadQueue._pump`：有任务在跑就 start，全跑完就 stop。放在 `_pump`
+  而不是 `_start` 的 finally 里，是因为「一条结束立刻起下一条」时后者会撤了又挂，
+  通知跟着闪；
+- 队列 `dispose` 时补一次 stop：`_disposed` 会拦住后续 `_pump`，不补就是一条永远
+  不消失的通知；
+- 通道 `sniffing_browser/download_service`（`DownloadServiceBridge.kt`），两个方法
+  `start` / `stop`。Android 12+ 从后台启动前台服务会抛异常，此时回 `unavailable`，
+  Dart 侧只记一条警告，不阻断下载；
+- Manifest 声明 `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_DATA_SYNC`（API 34+ 必需）
+  + `POST_NOTIFICATIONS`，服务带 `foregroundServiceType="dataSync"`；
+- 通知渠道 `IMPORTANCE_LOW`、`setOngoing(true)` 不可划掉，点通知回应用，下载结束自动消失。
+
+Android 13+ 用户拒绝通知权限时服务照常运行，只是通知不可见 —— 所以权限请求失败
+不影响下载，代码里也没有把它当错误。
 
 ### 5.4 HLS 下载
 
@@ -870,6 +923,10 @@ class HlsDownloader {
   }
 }
 ```
+
+单分片失败会自己重试 `AppConstants.segmentRetryCount` 次（退避见 5.3.3），仍失败才
+记一行 `第 i/N 个分片失败` 并中止整条任务 —— 分片序号是判断「站点固定位置限流」还是
+「随机断线」的关键线索。已下的分片留在 `tmp/<taskId>/`，用户点重试就是分片级续传。
 
 合并策略按分片类型分两种：
 
@@ -1169,15 +1226,19 @@ pending → running → completed
   白耗流量。用户点重试时任务 id 不变，HLS 的 `tmp/<taskId>/seg_*.part` 还在，
   所以那是真正的分片级续传
 - 进度通过任务独立的 `progress` / `speed` / `statusNotifier` 推给 UI
-  （`ListenableBuilder` + `Listenable.merge`），队列级 `notifyListeners()` 只在任务增删与状态迁移时调用
+  （`ListenableBuilder` + `Listenable.merge`），队列级 `notifyListeners()` 只在任务增删与状态迁移时调用。
+  速度是本地采样算的，**不发额外请求**：单文件按 500ms 窗口对 `onReceiveProgress`
+  的累计字节求差；HLS 按 1 秒窗口对 `HlsProgress.bytes` 求差（只计本次真正落盘
+  的字节，续传跳过的旧分片返回 0，否则续传瞬间会算出虚高速度）
 - HLS 任务按分片序号记录完成情况，`.part` 存在且非空就跳过，实现分片级续传
 - **分片总数在第一次进度回调时才填**（`totalSegments` 非 final）：入队时还没解析
   playlist，无从知道总数；UI 拿到之后才显示「206/430」
 - **临时目录只在三种时机消失**：下载成功（合并后整目录删）、用户删记录 / 清空已
   结束（`remove` / `clearFinished` 调 `StoragePaths.cleanTemp`）、用户清应用数据。
   失败和取消都必须保留 —— 那是续传的全部依据
-- 单文件下载不支持字节级续传：先写 `.part` 再 rename，失败由 dio 的
-  `deleteOnError` 清掉，所以中断不会留下半截文件（代价是重下）
+- 单文件下载按字节级续传：失败保留 `.part`，下次带 `Range: bytes=<offset>-`
+  + `FileAccessMode.append` 接着写；服务端不认 Range（回 200 全量）时丢弃重下，
+  详见 5.3.3
 - DASH 的 `.mpd` 任务直接抛「暂不支持 DASH 分片重组」；嗅探到的 `.m4s` 分片走 5.8 的配对合并
 
 ### 5.7 转换队列
@@ -1754,6 +1815,15 @@ sniffing-browser/
 页签。后台页签不进 `_live`，WebView 等激活时才创建，不占内存；代价是点「查看」
 时要重新加载那一页。
 
+隔离时底部会弹一条 `已在后台页签打开：<host>`。这条提示带「查看」按钮，而
+**Flutter 3.44 的 `SnackBar.persist` 默认值就是 `action != null`** —— 带按钮的
+SnackBar 永不走超时逻辑（`scaffold.dart` 里计时器到点先判 `persist`），用户看到的
+就是「提示一直挂着、怎么都不消失」。所以这里显式写了 `persist: false` +
+`duration: 4s`。关闭键自己放：内置的 `showCloseIcon` 固定 24px 且不支持放大，自绘
+的用 28px 图标 + 40px 触控区，颜色取 `onInverseSurface`（M3 的 SnackBar 是深色底，
+`IconButton` 默认取 `onSurface` 会看不见）。「已加入转换队列」那条同样带按钮，
+一并补了 `persist: false`。
+
 顶栏第二层的盾牌（`_RedirectGuardButton`）是总开关，默认开；图标看不出用途，
 所以每次切换都弹一句状态提示。**来源页保护是独立的**：即使关掉隔离，
 `SnifferService.setCurrentPage(trusted:)` 也不会把脚本强跳过去的跨站页记成来源页，
@@ -1775,10 +1845,13 @@ composition），理论上不参与绘制就不会显示，但需要在真机上
 （`sniff_fab.dart`），不是顶栏一项 ——
 
 - 56dp 圆角方块（标准 FAB 尺寸），只有雷达图标 + 数量角标；
-- 毛玻璃底：`BackdropFilter` 做 14 sigma 的高斯模糊，上盖 `surface` 的 0.3 alpha
+- 毛玻璃底：`BackdropFilter` 做 14 sigma 的高斯模糊，上盖 `surface` 的 0.75 alpha
   填充 + 一圈 0.5 alpha 描边，目的是透出下面页面而不是糊成一块实心色块；
   阴影画在 `ClipRRect` 外面（否则会被一起裁掉），`ClipRRect` 同时挡住模糊
   向四角外的扩散；
+  > 不透明度定在 0.75：早期是 0.3，但网页多半白底、模糊又取不到 platform view
+  > 的像素（见下方限制），等效于「一层很淡的白纱」，图标跟着发虚。0.75 仍留
+  > 25% 透光，视觉上还是玻璃，对比度却够用。
 - 默认停靠右侧 16、距底部 60（让开底部手势条 / 安全区）；
 - 可拖动，位置记在 `SniffFabPosition`（`fab_position.dart`）里，**只存内存**：
   用户明确要求「杀掉应用就回默认右下角」，所以刻意不落盘；
@@ -1788,7 +1861,7 @@ composition），理论上不参与绘制就不会显示，但需要在真机上
 
 > 已知限制：`BackdropFilter` 只模糊 Flutter 自己绘制的层。Android / Windows 上
 > WebView 是 platform view（独立合成层），按钮浮在网页上方时取不到它的像素，
-> 实际观感退化为「0.3 半透明底 + 描边」，模糊在网页区看不出来；盖在自绘首页
+> 实际观感退化为「0.75 半透明底 + 描边」，模糊在网页区看不出来；盖在自绘首页
 > 这类 Flutter 内容上才有效果。
 
 **首页行为（2026-11-12 起）**：默认显示自写 Flutter 起始页，不加载任何外部网页、

@@ -26,8 +26,9 @@
 | 嗅探（Windows） | CDP `Network.responseReceived` / `requestWillBeSent` 事件推送，非阻塞 | Windows 实测 |
 | 请求头补全 | 嗅探缓存头 + `pageUrl` 兜底 Referer + 按平台 UA + **按请求 URL 从 `CookieManager` 现取 Cookie**（Android） | 单测覆盖合并逻辑，待真机复验 403 站点 |
 | 资源面板 | 类型分组筛选、缩略图（图片 + 视频首帧）、文件名/大小展示、一键入队 | 桌面 Windows 实测；Android 抽帧待真机复验 |
-| 下载队列 | 并发 3、状态机、取消、重试、进度独立通知 | 端到端测试 |
-| 单文件下载 | `.part` 临时文件 + rename，中断不污染目标文件 | 端到端测试 |
+| 下载队列 | 并发 3、状态机、取消、重试、进度独立通知、单文件断流按 Range 续传 | 端到端测试 |
+| 单文件下载 | `.part` 临时文件 + rename，中断不污染目标文件；断流后按 `Range` 续传，失败保留 `.part` | 端到端测试 |
+| 后台保活 | Android 下载期间挂 `dataSync` 前台服务（常驻通知），切后台/锁屏不再被冻结断流 | 编译通过，待真机复验 |
 | HLS | master 选最高码率、并发分片、AES-128 解密、fMP4 init 段处理、二进制合并、分片级续传 | 端到端测试 |
 | 转码（桌面） | 调用系统 ffmpeg：TS→MP4 无损转封装、音频→MP3 重编码，进度解析、取消 | 端到端测试 |
 | 日志与诊断 | 文件日志、全局错误捕获、通道计数器、诊断页 | Windows 实测 |
@@ -157,7 +158,6 @@ AAR 只发布 `arm64-v8a` / `x86_64`，因此 `ndk.abiFilters` 也限定为这�
 - 鸿蒙侧 FFmpeg 接入（`@ohos/ffmpeg-kit` 或同等 ArkTS 桥接）
 - `ohos/` 平台目录（需要 Flutter-OH SDK 与 DevEco Studio，本机尚未配置）
 - Android TS→MP4 的「只重编音频」失败回退（桌面已有）
-- 单文件字节级续传（Range 逐站行为不可靠；HLS 按分片续传已实现；重启后点重试即续）
 - DASH 分片重组（当前直接提示不支持）
 - 代理支持：`dio` 默认不读 `HTTP_PROXY` 环境变量，需要走代理的网络环境目前直连
 
