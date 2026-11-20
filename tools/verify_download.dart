@@ -1,11 +1,14 @@
 // 下载链路的端到端验证脚本。
 //
 // 不属于 test/ 目录：这里要发真实网络请求，跑得慢，也不适合放 CI。
-// 用法：
-//   dart run tools/verify_download.dart            # 全部
-//   dart run tools/verify_download.dart file       # 单文件
-//   dart run tools/verify_download.dart hls        # 普通 HLS
-//   dart run tools/verify_download.dart aes        # AES-128 HLS
+// 入口是 `test/download_real_e2e_test.dart`（默认跳过，按需打开）：
+//
+//   SNIFF_E2E=1 flutter test test/download_real_e2e_test.dart
+//   SNIFF_E2E=1 SNIFF_VERIFY=hls flutter test test/download_real_e2e_test.dart
+//
+// 注意：`dart run tools/verify_download.dart` **跑不起来**。下载链路
+// （file_downloader -> app_log -> storage_paths）依赖 flutter/foundation，
+// `dart run` 没有 dart:ui，连编译都过不去。要跑就得借 flutter test 的运行环境。
 //
 // 为什么用本地 HTTP 服务提供 playlist：真实测试流动辄 600 个分片，
 // 一次下完要几分钟。本地服务可以只暴露 3 个分片，但分片本身仍来自
@@ -40,8 +43,13 @@ void _fail(String name, String reason) {
   stdout.writeln('  [FAIL] $name — $reason');
 }
 
-Future<void> main(List<String> args) async {
-  final String mode = args.isEmpty ? 'all' : args.first;
+/// 跑一遍验证，返回失败项数（0 表示全过）。
+///
+/// 不在这里 `exit`：用例模式要回到测试框架，脚本模式由 [main] 决定退出码。
+/// 计数每次清零，否则同进程内跑第二遍会把上一遍的失败累加进来。
+Future<int> run({String mode = 'all'}) async {
+  _passed = 0;
+  _failed = 0;
   final Directory work = Directory(
     '${Directory.systemTemp.path}/sniffing-verify',
   );
@@ -69,7 +77,7 @@ Future<void> main(List<String> args) async {
   }
 
   stdout.writeln('\n结果: $_passed 通过, $_failed 失败');
-  exit(_failed == 0 ? 0 : 1);
+  return _failed;
 }
 
 /// 单文件下载：走 FileDownloader.download，检查 .part 是否清理、大小是否对得上。

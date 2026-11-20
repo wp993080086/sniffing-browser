@@ -23,11 +23,18 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
 
-        // ffmpeg-kit AAR 只发布 arm64-v8a / x86_64。若不限制，Flutter 会打出
-        // 含 32 位 ABI 的 APK，装上后 libffmpegkit.so 缺失会直接崩。
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+    // ffmpeg-kit AAR 只发布 arm64-v8a / x86_64。32 位包里没有 libffmpegkit.so，
+    // 装上能启动、一用转码就崩 —— 比装不上更糟，用户会以为是代码 bug。
+    // 这里直接剔掉 32 位目录，让 32 位设备在安装阶段就报 NO_MATCHING_ABIS。
+    //
+    // 不要改回 defaultConfig.ndk.abiFilters：`flutter build apk` 会把
+    // -Ptarget-platform 透传给 Gradle 并覆盖它，那样的配置实际不生效（本文件
+    // 曾经就这么写着，直到打了 118MB 的包才发现 armeabi-v7a 还在里面）。
+    packaging {
+        jniLibs {
+            excludes += setOf("lib/armeabi-v7a/**", "lib/x86/**")
         }
     }
 
