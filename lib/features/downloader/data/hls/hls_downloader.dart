@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../../core/constants/app_constants.dart';
+import '../../../../core/logging/app_log.dart';
 import '../file_downloader.dart';
 import 'aes_decryptor.dart';
 import 'm3u8_models.dart';
@@ -13,10 +14,14 @@ import 'm3u8_parser.dart';
 import 'segment_merger.dart';
 
 class HlsProgress {
-  const HlsProgress({required this.done, required this.total});
+  const HlsProgress({required this.done, required this.total, this.bytes = 0});
 
   final int done;
   final int total;
+
+  /// 本次下载真正写盘的累计字节数，断点续传跳过的分片不计入。
+  /// 只用于算速度，进度百分比仍然按分片数走。
+  final int bytes;
 
   double get fraction => total <= 0 ? 0 : (done / total).clamp(0.0, 1.0);
 }
@@ -105,6 +110,7 @@ class HlsDownloader {
     final int total = playlist.segments.length;
     int nextIndex = 0;
     int done = 0;
+    int fetchedBytes = 0;
     Object? firstError;
 
     Future<void> worker() async {
@@ -113,7 +119,7 @@ class HlsDownloader {
         if (nextIndex >= total) return;
         final int index = nextIndex++;
         try {
-          await _prepareSegment(
+          final int written = await _prepareSegment(
             index: index,
             segment: playlist.segments[index],
             workDir: workDir,
@@ -121,10 +127,17 @@ class HlsDownloader {
             cancelToken: internal,
           );
           done++;
-          onProgress?.call(HlsProgress(done: done, total: total));
+          fetchedBytes += written;
+          onProgress?.call(
+            HlsProgress(done: done, total: total, bytes: fetchedBytes),
+          );
         } catch (e) {
           if (firstError == null) {
             firstError = e;
+            // 分片序号是排查「为什么这条任务总断」的关键：断在固定位置
+            // 说明是站点对某个分片限流，随机位置说明是线路或系统回收连接。
+            final String detail = e is DownloadException ? e.message : '$e';
+            logWarn('Download', '第 ${index + 1}/$total 个分片失败: $detail');
             if (!internal.isCancelled) internal.cancel('segment failed');
           }
           return;
@@ -223,7 +236,9 @@ class HlsDownloader {
   ///
   /// 支持分片级断点续传：`.part` 已存在且非空就直接跳过。
   /// 这比记录“已完成序号列表”可靠 —— 文件在就是完成，文件不在就重下。
-  Future<void> _prepareSegment({
+  /// 准备单个分片，返回本次新写盘的字节数（已存在则 0，避免续传时把
+  /// 跳过的旧分片算进速度里，算出个虚高的数字）。
+  Future<int> _prepareSegment({
     required int index,
     required M3u8Segment segment,
     required Directory workDir,
@@ -232,7 +247,7 @@ class HlsDownloader {
   }) async {
     final File partFile = File(p.join(workDir.path, 'seg_$index.part'));
     if (await partFile.exists() && await partFile.length() > 0) {
-      return;
+      return 0;
     }
 
     final Map<String, String> segmentHeaders = Map<String, String>.from(
@@ -248,6 +263,8 @@ class HlsDownloader {
       url: segment.uri.toString(),
       headers: segmentHeaders,
       cancelToken: cancelToken,
+      // 分片小，重试成本远低于让整条任务失败重来。
+      retries: AppConstants.segmentRetryCount,
     );
 
     final M3u8Key? key = segment.key;
@@ -265,6 +282,7 @@ class HlsDownloader {
     }
 
     await partFile.writeAsBytes(plain, flush: true);
+    return plain.length;
   }
 
   Future<Uint8List> _loadKey(

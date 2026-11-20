@@ -561,6 +561,12 @@ class DownloadQueue extends ChangeNotifier {
       p.join(StoragePaths.temp.path, '${task.id}.out'),
     );
 
+    // 分片回调只带分片数和累计字节，速度在这里自己采样。窗口取 1 秒：
+    // 分片动辄几 MB，并发 6 路下 500ms 内经常一片都没落盘，算出来会是一串 0。
+    final Stopwatch stopwatch = Stopwatch()..start();
+    int lastSampleMs = 0;
+    int lastSampleBytes = 0;
+
     final HlsDownloadResult result = await _hls.download(
       playlistUrl: task.url,
       workDir: workDir,
@@ -569,6 +575,16 @@ class DownloadQueue extends ChangeNotifier {
       userCancelToken: token,
       onProgress: (HlsProgress progress) {
         task.updateSegments(progress.done, progress.total);
+        final int elapsed = stopwatch.elapsedMilliseconds;
+        if (elapsed - lastSampleMs >= 1000) {
+          final double seconds = (elapsed - lastSampleMs) / 1000;
+          if (seconds > 0) {
+            // 走方法而不是直写 notifier，队列 dispose 后回调仍会进来
+            task.setSpeed((progress.bytes - lastSampleBytes) / seconds);
+          }
+          lastSampleMs = elapsed;
+          lastSampleBytes = progress.bytes;
+        }
       },
     );
 
