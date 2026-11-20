@@ -112,21 +112,48 @@ class FileDownloader {
     required int retries,
     required MediaType? expectType,
   }) async {
-    if (await part.exists()) {
-      await part.delete();
+    /// 发一次请求。[offset] > 0 表示接着已下的字节下。
+    Future<Response<dynamic>> fetch(int offset) {
+      return _dio.download(
+        url,
+        part.path,
+        options: Options(
+          headers: offset > 0
+              ? <String, String>{...headers, 'Range': 'bytes=$offset-'}
+              : headers,
+          responseType: ResponseType.stream,
+        ),
+        cancelToken: cancelToken,
+        // 中断时**不删**已写字节：它们是完整前缀，下一次从 offset 接着下。
+        // 之前的写法每次重试都从头来，站点按连接时长/字节数掐断时必然三次
+        // 断在同一处，用户看到的就是"过一会儿报错、点重试也没用"。
+        deleteOnError: false,
+        fileAccessMode: offset > 0
+            ? FileAccessMode.append
+            : FileAccessMode.write,
+        // 续传时 total 只是剩余字节，进度得补上 offset，否则进度条往回跳。
+        onReceiveProgress: offset > 0
+            ? (int received, int total) => onProgress?.call(
+                offset + received,
+                total > 0 ? offset + total : total,
+              )
+            : onProgress,
+      );
     }
 
     Object? lastError;
     for (int attempt = 0; attempt <= retries; attempt++) {
       try {
-        final Response<dynamic> response = await _dio.download(
-          url,
-          part.path,
-          options: Options(headers: headers, responseType: ResponseType.stream),
-          cancelToken: cancelToken,
-          deleteOnError: true,
-          onReceiveProgress: onProgress,
-        );
+        int offset = await _partLength(part);
+        Response<dynamic> response = await fetch(offset);
+
+        // 服务端忽略 Range 时回 200 全量，append 会把整段接在旧字节后面 ——
+        // 文件看着更大，实际已损坏。这种情况只能丢掉重来。
+        if (offset > 0 && !_resumedCorrectly(response, offset)) {
+          await _deleteQuietly(part);
+          offset = 0;
+          response = await fetch(0);
+        }
 
         if (!await part.exists()) {
           throw const FileSystemException('下载完成但文件不存在');
@@ -153,6 +180,9 @@ class FileDownloader {
       } on DioException catch (e) {
         lastError = e;
         if (CancelToken.isCancel(e)) rethrow;
+        // 416：残留的 .part 比资源本身还长（地址换过 / 文件被改过），
+        // 不删掉的话每次续传都会被拒，只能从头下。
+        if (e.response?.statusCode == 416) await _deleteQuietly(part);
         if (attempt == retries) break;
         await Future<void>.delayed(_backoff(e, attempt, 400));
       }
@@ -162,6 +192,35 @@ class FileDownloader {
     throw lastError is DioException
         ? lastError
         : DownloadException(_describeError(lastError), url: url);
+  }
+
+  /// `.part` 里已有多少字节。取不到就当作 0，从零下。
+  static Future<int> _partLength(File part) async {
+    try {
+      return await part.exists() ? await part.length() : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static Future<void> _deleteQuietly(File file) async {
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (_) {
+      // 删不掉就交给下一次 416 兜底
+    }
+  }
+
+  /// 续传响应是否真的接在 [offset] 后面。
+  ///
+  /// 只认 206 + `Content-Range` 起点对得上：有的 CDN 会忽略 Range 回 200，
+  /// 有的会把范围往回收（回 206 但起点是 0），这两种情况直接 append 都会得到
+  /// 一个大小看着正常、内容错位的坏文件。
+  static bool _resumedCorrectly(Response<dynamic> response, int offset) {
+    if (response.statusCode != 206) return false;
+    final String? range = response.headers.value('content-range');
+    if (range == null) return true;
+    return range.replaceAll(' ', '').startsWith('bytes$offset-');
   }
 
   /// 直接取字节。用于小资源（playlist、密钥）。
@@ -437,13 +496,14 @@ class FileDownloader {
   /// 失败后的等待时长。
   ///
   /// 连不上（超时 / 连接失败）基本是站点限流或线路抖动，几百毫秒后重来只会
-  /// 立刻再撞一次；这类错误要多等一会儿才有机会恢复。其余错误保持原来的
-  /// 快速重试节奏。
+  /// 立刻再撞一次；这类错误要多等一会儿才有机会恢复。`unknown` 也归进来：
+  /// 在下载路径上它几乎都是响应体下到一半被断开，成因同样是限流或断线。
   static Duration _backoff(DioException error, int attempt, int baseMs) {
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
+      case DioExceptionType.unknown:
         return Duration(seconds: 2 + attempt * 4);
       default:
         return Duration(milliseconds: baseMs * (attempt + 1));
@@ -454,18 +514,35 @@ class FileDownloader {
   ///
   /// 之前只记 403，用户反馈「重试一直失败」时日志里什么都没有，分不清是
   /// 站点拒绝、DNS 挂了还是隧道断了。只记主机名，不记完整 URL 的 query。
+  ///
+  /// `unknown` 单独把底层异常带上：`Connection closed while receiving data`
+  /// （对方主动断）和 `Connection reset by peer`（线路或系统回收了连接）
+  /// 是两个不同的原因，不记下来就只能靠猜。
   static void _logTimeout(Object? error, String url) {
     if (error is! DioException) return;
+    final String host = Uri.tryParse(url)?.host ?? url;
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
       case DioExceptionType.connectionError:
-        final String host = Uri.tryParse(url)?.host ?? url;
         logWarn('Download', '请求失败 ${error.type.name} $host');
+      case DioExceptionType.unknown:
+        logWarn('Download', '请求失败 unknown $host ${_rawCause(error)}');
       default:
         return;
     }
+  }
+
+  /// 把 dio 吞掉的底层异常取出来。
+  ///
+  /// 响应体中途断开时，dio 抛的是 `type = unknown` 且 `message` 为空的
+  /// [DioException]（真实原因在 `error.error` 里）。直接取 `message` 就只能
+  /// 给用户一句「未知错误」，等于没报错。
+  static String _rawCause(DioException error) {
+    final Object? cause = error.error;
+    final String raw = error.message ?? (cause?.toString() ?? '');
+    return raw.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   String _describeError(Object? error) {
@@ -494,10 +571,26 @@ class FileDownloader {
         case DioExceptionType.cancel:
           return '已取消';
         case DioExceptionType.unknown:
-          return error.message ?? '未知错误';
+          return _describeUnknown(error);
       }
     }
     return error?.toString() ?? '未知错误';
+  }
+
+  /// `unknown` 的实际含义几乎只有一个：响应体下到一半连接没了。
+  ///
+  /// 已下的字节留在 `.part` 里，重试会从断点接着下，所以文案直接告诉用户
+  /// 「重试就行」，而不是让他回原页面重新嗅探。
+  static String _describeUnknown(DioException error) {
+    final String raw = _rawCause(error);
+    if (raw.isEmpty) return '未知错误';
+    final String detail = raw.length > 120 ? '${raw.substring(0, 120)}…' : raw;
+    if (raw.contains('Connection closed') ||
+        raw.contains('Connection reset') ||
+        raw.contains('Broken pipe')) {
+      return '连接被中途断开，已下的部分会保留；重试可接着下（$detail）';
+    }
+    return '未知错误（$detail）';
   }
 }
 
