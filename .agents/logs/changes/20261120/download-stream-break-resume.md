@@ -60,3 +60,24 @@
   - `docs/tech-design.md`：毛玻璃段 0.3 → 0.75 并记录原因；5.6 补速度采样说明，同时订正该节遗留的「单文件不支持字节级续传」（5.3.3 早已改成 Range 续传）。
 - 结果：`flutter analyze` 无问题；`flutter test` 全量 184 通过。另写临时用例（本地 HttpServer + 2 个 1000 字节分片）验证 `HlsProgress.bytes` 累加到 2000、单调不减、输出文件大小一致，通过后已删除；`dart run tools/verify_download.dart` 在当前机器上因 `dart run` 缺 `dart:ui` 无法启动（既有环境问题，与本次改动无关）。
 - 待办：release APK 需重打。
+
+## 追加：熄屏断网的两套重试预算
+
+- 日期：2026-11-20
+- 现象：熄屏一段时间后回来，任务失败。日志三条同现：
+  - `Download 请求失败 unknown surrit.com HandshakeException: Connection terminated during handshake`
+  - `Download 第 144/2095 个分片失败: 未知错误（HandshakeException: ...）`
+  - `WebView 资源加载失败: .../api/models?... — net::ERR_CONNECTION_CLOSED`
+
+  手动点重试即恢复（分片都在 `tmp/<taskId>/`，只补缺的）。
+- 诊断：前台服务只保证进程不被冻结，管不到网络。熄屏后系统挂起连接出口，TLS 握手在中途被掐断，落成 `unknown` + `HandshakeException`；同一瞬间 WebView 的请求也报 `ERR_CONNECTION_CLOSED`，说明是设备级断网而非站点问题。旧实现把网络中断和 403 共用 `retries = 2`（2s / 6s），8 秒后就放弃，远短于熄屏时长，所以必须人工点重试。
+- 改动（`lib/features/downloader/data/file_downloader.dart`）：
+  - 新增 `_isNetworkFailure`：超时 / 连接失败，以及 `unknown` 且 `error.error` 为 `SocketException` / `TlsException` / `HandshakeException`；`badResponse` 不算。
+  - 新增 `_nextWait` + `defaultNetworkWaits`（2/5/10/15/20/30/30 秒，累计约 2 分钟）：网络类走长等待表，站点类仍走 `retries` 短退避，两套预算互不占用。
+  - `_downloadOnce` / `_fetchBytesOnce` 的 for 循环改为 while + 双计数；等待前检查 `cancelToken.isCancelled`；新增 `_logNetworkWait`（首轮 warn、之后 debug）。
+  - 构造参数 `networkWaits` 可注入，便于测试与后续调参。
+  - `_describeUnknown` 增加两段文案：握手阶段中断、`Network is unreachable` / `Failed host lookup`。
+- 测试：新增 `test/file_downloader_network_retry_test.dart` 4 例（握手后自动接上、握手文案、预算用尽才放弃、404 不吃网络预算）；`test/file_downloader_resume_test.dart` 适配 `networkWaits` 参数。
+- 结果：`flutter analyze` 无问题；`flutter test` 全量 188 通过（8 skip）。
+- 文档：`docs/tech-design.md` 5.3 重试要点改为两套预算，新增 5.3.5 记录成因、预算表与 MIUI 省电策略的叠加影响，5.4 分片重试描述同步。
+- 待办：release APK 需重打。

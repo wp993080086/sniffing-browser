@@ -669,9 +669,12 @@ class FileDownloader {
   HLS 则是分片级续传（`.part` 已存在且非空就跳过，`#EXT-X-BYTERANGE` 用
   `Range: bytes=start-end`）
 - 并发上限 3（`AppConstants.maxConcurrentDownloads`）
-- 失败共 3 次尝试（`retries = 2`）。普通错误退避 400 / 800 / 1200ms 线性递增；
-  **超时类（连接 / 发送 / 接收）与 `unknown` 单独放宽到 2s / 6s** —— 这类失败
-  基本是站点限流、断流或隧道抖动，几百毫秒后重来只会立刻再撞一次
+- 重试分两套预算，互不占用（详见 5.3.5）：
+  - **网络类**（超时 / 连接失败 / `unknown` 底下的 socket、TLS 异常）：按
+    `_networkWaits` 表等 2 / 5 / 10 / 15 / 20 / 30 / 30 秒，累计约 2 分钟 —— 熄屏断网、
+    Wi-Fi↔蜂窝切换要更久才有机会恢复；
+  - **站点类**（403 / 404 / 5xx）：`retries = 2`，退避 400 / 800ms 线性递增，
+    等再久也不会自己变好
 - 文件名经 `StoragePaths.uniqueFile()` 消毒（Windows 非法字符 / 保留名 / 长度上限），
   重名时追加 ` (1)`、` (2)`
 
@@ -784,6 +787,46 @@ CDN 掐长连接、Wi-Fi 与蜂窝切换也会走到同一条路径。后台冻�
 
 Android 13+ 用户拒绝通知权限时服务照常运行，只是通知不可见 —— 所以权限请求失败
 不影响下载，代码里也没有把它当错误。
+
+#### 5.3.5 两套重试预算：网络断了可以等，站点拒了不能等（2026-11-20）
+
+前台服务挡住了「进程被冻结」，没挡住「网络被挂起」。实测日志：
+
+```
+Download 请求失败 unknown surrit.com HandshakeException: Connection terminated during handshake
+Download 第 144/2095 个分片失败: 未知错误（HandshakeException: ...）
+WebView  资源加载失败: .../api/models?... — net::ERR_CONNECTION_CLOSED
+```
+
+三条同现，说明不是站点问题：熄屏后系统挂起了这条连接的出口，TLS 握手在中途被
+掐断（`unknown` 的一种，`error.error` 是 `HandshakeException`），同一个瞬间 WebView
+的请求也报 `ERR_CONNECTION_CLOSED`。解锁后手动点重试就能接着下 —— 分片都在
+`workDir` 里，只补缺的那些。
+
+问题在于重试预算：旧实现里网络中断和 403 共用 `retries = 2`，2s + 6s 之后就
+放弃，而熄屏断网远不止 8 秒。也就是说「内部重试机制」在真正需要它的场景下不够用。
+
+现在拆成两套互不占用的预算（`FileDownloader._nextWait`）：
+
+| 失败类型 | 判定 | 预算 |
+|---|---|---|
+| 网络类 | `connectionTimeout` / `sendTimeout` / `receiveTimeout` / `connectionError`，以及 `unknown` 且 `error.error` 是 `SocketException` / `TlsException` / `HandshakeException` | `_networkWaits` 表：2 / 5 / 10 / 15 / 20 / 30 / 30 秒，累计约 2 分钟 |
+| 站点类 | `badResponse`（403 / 404 / 5xx）、证书错误等 | `retries` 次短退避（400ms 起线性） |
+
+- 网络等待只在**首轮**打 warn、之后转 debug：6 个分片并发时每轮都 warn 会刷屏；
+- 等待前先看 `cancelToken.isCancelled`，用户取消后不必再白等一轮才撞上 cancel；
+- `FileDownloader` 构造参数 `networkWaits` 可注入，用例里传零时长表，跑测试不用
+  真等两分钟；
+- 文案区分阶段：握手阶段断 → 「连接在 TLS 握手阶段被中断，通常是熄屏断网或网络
+  切换」；响应体中途断 → 「连接被中途断开」；DNS / 路由没了 → 「当前没有可用网络」。
+
+**仍然不做的**：整条任务自动重跑（签名会过期，见 5.3.2）。网络预算用尽后任务转
+`failed`，`.part` 与已完成分片都留着，用户点一次「重试」即续传。
+
+**MIUI 类 ROM 还有一层**：系统「锁屏后断开数据」策略会直接切掉网络，与前台的
+FGS 无关。表现是每次熄屏必断、解锁即恢复。这种情况只能把应用电池策略设成
+「无限制」（设置 → 应用设置 → 应用管理 → 嗅探浏览器 → 省电策略），代码侧等 2 分钟
+也能兜住短时断网。
 
 ### 5.4 HLS 下载
 
@@ -924,9 +967,11 @@ class HlsDownloader {
 }
 ```
 
-单分片失败会自己重试 `AppConstants.segmentRetryCount` 次（退避见 5.3.3），仍失败才
-记一行 `第 i/N 个分片失败` 并中止整条任务 —— 分片序号是判断「站点固定位置限流」还是
-「随机断线」的关键线索。已下的分片留在 `tmp/<taskId>/`，用户点重试就是分片级续传。
+单分片失败按 5.3.5 的两套预算重试：网络类走分钟级等待表（熄屏断网时 6 个 worker
+一起等，网络回来继续），站点类才用 `AppConstants.segmentRetryCount` 快速耗尽。
+仍失败才记一行 `第 i/N 个分片失败` 并中止整条任务 —— 分片序号是判断「站点固定位置
+限流」还是「随机断线」的关键线索。已下的分片留在 `tmp/<taskId>/`，用户点重试就是
+分片级续传。
 
 合并策略按分片类型分两种：
 
