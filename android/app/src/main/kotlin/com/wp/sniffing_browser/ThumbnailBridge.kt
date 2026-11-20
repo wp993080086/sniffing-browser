@@ -1,4 +1,4 @@
-package com.sniffing.sniffing_browser
+package com.wp.sniffing_browser
 
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever

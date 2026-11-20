@@ -127,7 +127,7 @@ RUN_E2E=1 flutter test test/transcode_e2e_test.dart
 日志文件位置（下载目录下的 `SniffingBrowser/logs/app.log`）：
 
 - Windows / 桌面：`下载/SniffingBrowser/logs/app.log`
-- Android：`/sdcard/Android/data/com.sniffing.sniffing_browser/files/SniffingBrowser/logs/app.log`
+- Android：`/sdcard/Android/data/com.wp.sniffing_browser/files/SniffingBrowser/logs/app.log`
 - HarmonyOS：应用 `filesDir/SniffingBrowser/logs/app.log`
 
 全局错误捕获已装好（`FlutterError.onError`、`PlatformDispatcher.onError`、
