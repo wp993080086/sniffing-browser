@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/providers.dart';
 import '../../diagnostics/presentation/diagnostics_page.dart';
 import '../../downloader/presentation/download_page.dart';
+import '../../settings/presentation/settings_page.dart';
 import '../providers/tab_manager.dart';
 import 'address_bar.dart';
 import 'tab_switcher.dart';
@@ -75,6 +76,7 @@ class _ToolbarRow extends StatelessWidget {
           _TabsButton(),
           _DownloadButton(),
           _DiagnosticsButton(),
+          _SettingsButton(),
         ],
       ),
     );
@@ -178,7 +180,9 @@ class _TabsButton extends ConsumerWidget {
     final int count = ref.watch(tabManagerProvider).tabCount;
     return _BarButton(
       icon: Icons.filter_none,
-      label: '$count',
+      // 起始页不算页签，所以只有它开着的时候数字是 0 —— 这时候不显示数字，
+      // 免得顶栏上挂一个「0」看着像出错。
+      label: count == 0 ? null : '$count',
       tooltip: '页签（$count 个）',
       onTap: () => showTabSwitcher(context),
     );
@@ -217,6 +221,25 @@ class _DiagnosticsButton extends StatelessWidget {
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (BuildContext context) => const DiagnosticsPage(),
+        ),
+      ),
+    );
+  }
+}
+
+/// 设置入口。图标不带文字：第二层已经排了四个按钮，再加一个带文字的
+/// 会在 360dp 宽的机器上挤爆。
+class _SettingsButton extends StatelessWidget {
+  const _SettingsButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return _BarButton(
+      icon: Icons.settings_outlined,
+      tooltip: '设置',
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) => const SettingsPage(),
         ),
       ),
     );

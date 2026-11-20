@@ -20,7 +20,6 @@ class BrowserPage extends ConsumerWidget {
     final int index = live.indexWhere(
       (BrowserTab tab) => tab.id == tabs.activeId,
     );
-    final BrowserTab active = tabs.activeTab;
 
     // 系统返回手势原来直接退应用：WebView 明明还有历史，页面却被整个关掉。
     // 这里先问网页能不能后退，退不动才把控制权交还系统。
@@ -65,7 +64,8 @@ class BrowserPage extends ConsumerWidget {
                           ),
                       ],
                     ),
-                    if (active.page.isHomePage)
+                    // 起始页是常驻页签，不占 WebView 槽位，直接盖在整个栈上面。
+                    if (tabs.isHomeActive)
                       const Positioned.fill(child: HomePage()),
                     const SniffFab(),
                   ],

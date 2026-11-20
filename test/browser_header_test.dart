@@ -40,8 +40,8 @@ void main() {
     expect(find.text('百度'), findsOneWidget);
     expect(find.text('下载'), findsOneWidget);
     expect(find.byTooltip('诊断日志'), findsOneWidget);
-    // 页签入口显示总数，默认一个。
-    expect(find.byTooltip('页签（1 个）'), findsOneWidget);
+    // 页签入口只数网页页签，起始页不算 —— 停在起始页时就是 0。
+    expect(find.byTooltip('页签（0 个）'), findsOneWidget);
 
     // 嗅探入口在右下角悬浮按钮上，不在顶栏（见 sniff_fab_test.dart）。
     expect(find.text('嗅探'), findsNothing);

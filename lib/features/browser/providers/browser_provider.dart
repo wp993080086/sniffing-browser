@@ -70,25 +70,28 @@ class BrowserController extends ChangeNotifier {
   }
 
   /// 地址栏输入 -> 实际 URL。返回空串表示回自写首页。
+  ///
   /// 带空格的当搜索词，不带协议但有域名的补 https。
-  String normalizeInput(String raw) {
+  static String normalize(String raw, SearchEngine engine) {
     final String input = raw.trim();
     if (input.isEmpty) return '';
     if (input.startsWith('http://') || input.startsWith('https://')) {
       return input;
     }
-    if (input.contains(' ')) return _searchUrl(input);
+    if (input.contains(' ')) return _searchUrl(input, engine);
     final RegExp domainLike = RegExp(
       r'^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}(:\d+)?(/.*)?$',
     );
     if (domainLike.hasMatch(input)) {
       return 'https://$input';
     }
-    return _searchUrl(input);
+    return _searchUrl(input, engine);
   }
 
-  String _searchUrl(String input) =>
-      '${_searchEngine.searchUrlPrefix}${Uri.encodeQueryComponent(input)}';
+  static String _searchUrl(String input, SearchEngine engine) =>
+      '${engine.searchUrlPrefix}${Uri.encodeQueryComponent(input)}';
+
+  String normalizeInput(String raw) => normalize(raw, _searchEngine);
 
   Future<void> navigate(String raw) async {
     final String url = normalizeInput(raw);

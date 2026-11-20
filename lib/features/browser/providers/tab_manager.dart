@@ -22,8 +22,20 @@ export 'browser_provider.dart' show SearchEngine;
 /// （滚动位置和播放进度会丢，这是省内存的代价）。
 class TabManager extends ChangeNotifier {
   TabManager({this.maxLive = 4, this.maxTabs = 20}) {
-    _create(activate: true);
+    // 常驻起始页。它不是「用户开的窗口」，所以建在 _tabs 里但打上 pinned，
+    // 关不掉、不占 WebView 槽位、也不参与导航替换。
+    _create(id: homeTabId, activate: true, pinned: true);
+
+    // `SNIFF_HOME_URL` 的语义是「启动直接进某个页面」，和起始页不冲突：
+    // 起始页留着，另外开一个网页页签盖在它前面。
+    final String? startup = AppConstants.startupUrl;
+    if (startup != null && startup.isNotEmpty) {
+      _create(url: startup, activate: true);
+    }
   }
+
+  /// 常驻起始页的页签 id。
+  static const String homeTabId = 'home';
 
   /// 同时存活的 WebView 数量上限。
   final int maxLive;
@@ -72,10 +84,20 @@ class TabManager extends ChangeNotifier {
   }
 
   /// 当前页签。所有页签都被关掉的瞬间会落到列表首个，不会返回 null。
+  /// 列表首个恒为起始页，所以这里永远拿得到东西。
   BrowserTab get activeTab => _byId(_activeId) ?? _tabs.first;
 
+  /// 起始页页签。恒存在。
+  BrowserTab get homeTab => _byId(homeTabId) ?? _tabs.first;
+
+  /// 当前是否停在起始页。界面靠它决定盖不盖 [HomePage]。
+  bool get isHomeActive => activeTab.pinned;
+
   String get activeId => activeTab.id;
-  int get tabCount => _tabs.length;
+
+  /// 网页页签数量，**不含**常驻起始页。
+  /// 顶栏和切换器都用它，用户看到的数字才和他开出来的窗口数一致。
+  int get tabCount => _tabs.where((BrowserTab t) => !t.pinned).length;
   SearchEngine get searchEngine => _searchEngine;
   bool get blockAutoRedirect => _blockAutoRedirect;
 
@@ -87,7 +109,9 @@ class TabManager extends ChangeNotifier {
   bool get isLoading => activeTab.page.isLoading;
   bool get canGoBack => activeTab.page.canGoBack;
   bool get canGoForward => activeTab.page.canGoForward;
-  bool get isHomePage => activeTab.page.isHomePage;
+
+  /// 起始页或空白页。两者都不该有后退历史。
+  bool get isHomePage => isHomeActive || activeTab.page.isHomePage;
 
   BrowserTab? _byId(String id) {
     for (final BrowserTab tab in _tabs) {
@@ -102,7 +126,15 @@ class TabManager extends ChangeNotifier {
     bool activate = true,
     bool background = false,
   }) {
-    if (_tabs.length >= maxTabs) {
+    // 不带地址＝回起始页。起始页是常驻的那一个，别再复制一个空白页签出来，
+    // 否则用户会看到两屏一模一样的内容，还分不清哪个关得掉。
+    if (url == null || url.isEmpty) {
+      activateTab(homeTabId);
+      return homeTab;
+    }
+    // 起始页不占名额：它是浏览器的壳，不是用户开出来的窗口。
+    final int webTabs = _tabs.where((BrowserTab t) => !t.pinned).length;
+    if (webTabs >= maxTabs) {
       logWarn('Tabs', '页签数已达上限 $maxTabs，忽略新建');
       return null;
     }
@@ -132,11 +164,14 @@ class TabManager extends ChangeNotifier {
     String? url,
     bool activate = true,
     bool background = false,
+    String? id,
+    bool pinned = false,
   }) {
     final BrowserTab tab = BrowserTab(
-      id: 'tab_${++_seq}',
-      url: url ?? AppConstants.startupUrl,
+      id: id ?? 'tab_${++_seq}',
+      url: url ?? (pinned ? null : AppConstants.startupUrl),
       spawnedInBackground: background,
+      pinned: pinned,
     );
     _tabs.add(tab);
     if (activate || _activeId.isEmpty) {
@@ -161,17 +196,18 @@ class TabManager extends ChangeNotifier {
   void closeTab(String id) {
     final BrowserTab? tab = _byId(id);
     if (tab == null) return;
+    if (tab.pinned) {
+      // 起始页是壳，关掉它就没有「空状态」可回了。
+      logInfo('Tabs', '起始页不可关闭');
+      return;
+    }
 
     final bool wasActive = id == activeTab.id;
     final int index = _tabs.indexOf(tab);
     _tabs.removeAt(index);
     _live.remove(id);
 
-    if (_tabs.isEmpty) {
-      _create(activate: true);
-      return;
-    }
-
+    // 起始页永不删除，所以 _tabs 不会空；关光网页页签就落回起始页。
     if (wasActive) {
       // 关掉当前页签后落到相邻的那个：优先右边，没有就退回左边。
       final BrowserTab next =
@@ -182,7 +218,19 @@ class TabManager extends ChangeNotifier {
     }
   }
 
-  Future<void> navigate(String raw) => activeTab.page.navigate(raw);
+  /// 地址栏 / 起始页输入框提交。
+  ///
+  /// 停在起始页时**新建一个页签**再去加载，而不是就地跳转 —— 否则起始页
+  /// 会被这第一次导航吃掉，用户再也回不到那个「什么都不开」的状态。
+  Future<void> navigate(String raw) async {
+    if (isHomeActive) {
+      final String url = BrowserController.normalize(raw, _searchEngine);
+      if (url.isEmpty) return;
+      createTab(url: url);
+      return;
+    }
+    await activeTab.page.navigate(raw);
+  }
 
   Future<void> reload() => activeTab.page.reload();
 
@@ -201,6 +249,11 @@ class TabManager extends ChangeNotifier {
     final BrowserTab? tab = createTab(url: url);
     if (tab == null) {
       // 页签开满了就降级在当前页打开，至少别让用户点了没反应。
+      // 但当前是起始页时不能这么干 —— 那会把起始页就地变成网页。
+      if (isHomeActive) {
+        logWarn('Tabs', '页签已满，忽略新页签打开: $url');
+        return;
+      }
       await activeTab.page.navigate(url);
       return;
     }
@@ -254,6 +307,8 @@ class TabManager extends ChangeNotifier {
 
   /// 保证该页签有 WebView，超出上限时淘汰最久没被看过的那个。
   void _ensureLive(BrowserTab tab) {
+    // 起始页是 Flutter 画的，底下连 WebView 都不需要建。
+    if (tab.pinned) return;
     if (!_live.contains(tab.id)) _live.add(tab.id);
     while (_live.length > maxLive) {
       final List<String> others = _live

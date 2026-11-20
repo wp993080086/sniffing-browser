@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../../core/constants/app_constants.dart';
 import '../providers/browser_tab.dart';
 import '../providers/tab_manager.dart';
 
@@ -176,6 +177,8 @@ class _TabMasonry extends StatelessWidget {
 
 /// 没有 title 时退回一句占位，不要拿域名再显示一遍 —— 上面那行已经写了。
 String _title(BrowserTab tab) {
+  // 起始页的「标题」就是应用名：它不是网页，拿 host 或「新页签」都不合适。
+  if (tab.pinned) return AppConstants.appName;
   final String title = tab.page.title.trim();
   if (title.isNotEmpty) return title;
   return tab.displayHost.isEmpty ? '新页签' : '未命名页面';
@@ -220,7 +223,11 @@ class _TabCard extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    tab.displayHost.isEmpty ? '起始页' : tab.displayHost,
+                    tab.pinned
+                        ? '起始页'
+                        : (tab.displayHost.isEmpty
+                              ? '起始页'
+                              : tab.displayHost),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -245,19 +252,25 @@ class _TabCard extends ConsumerWidget {
                 ],
               ),
             ),
-            Positioned(
-              top: -4,
-              right: -4,
-              child: IconButton(
-                tooltip: '关闭页签',
-                iconSize: 15,
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.all(8),
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
-                onPressed: () => ref.read(tabManagerProvider).closeTab(tab.id),
+            // 起始页没有关闭键：它是浏览器的一部分，不是用户开的窗口。
+            if (!tab.pinned)
+              Positioned(
+                top: -4,
+                right: -4,
+                child: IconButton(
+                  tooltip: '关闭页签',
+                  iconSize: 15,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                  icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
+                  onPressed: () =>
+                      ref.read(tabManagerProvider).closeTab(tab.id),
+                ),
               ),
-            ),
           ],
         ),
       ),

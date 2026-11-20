@@ -7,8 +7,12 @@ import 'browser_provider.dart';
 /// 还在。代价是每个页签一份 [SnifferService]，但它只存 URL 和请求头
 /// （上限 800 条），相比一个 WebView 实例的内存可以忽略。
 class BrowserTab {
-  BrowserTab({required this.id, String? url, this.spawnedInBackground = false})
-    : pendingUrl = url {
+  BrowserTab({
+    required this.id,
+    String? url,
+    this.spawnedInBackground = false,
+    this.pinned = false,
+  }) : pendingUrl = url {
     if (url != null && url.isNotEmpty) {
       page.markExternal(url);
     }
@@ -16,6 +20,13 @@ class BrowserTab {
 
   /// 稳定标识，同时用作 `IndexedStack` 子节点的 key。
   final String id;
+
+  /// 常驻起始页。
+  ///
+  /// 内容和普通页签不同 —— 它是 Flutter 画的，底下没有 WebView，也不需要
+  /// `pendingUrl`。不能被关闭，访问地址时也不会被就地替换：地址进的是新建的
+  /// 普通页签，起始页留在原地。
+  final bool pinned;
 
   /// 这个页签的网页状态（URL / 标题 / 前进后退 / 加载态）。
   final BrowserController page = BrowserController();
