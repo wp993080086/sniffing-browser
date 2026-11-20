@@ -24,14 +24,38 @@ typedef CookieLoader = Future<String?> Function(String url);
 /// 先写 `.part` 再 rename —— 中途失败不会留下一个看似完整的半截文件，
 /// 这对“下载完成后自动导出到相册”尤其重要。
 class FileDownloader {
-  FileDownloader({Dio? dio, CookieLoader? cookieLoader})
-    : _dio = dio ?? createDio(),
-      _cookieLoader = cookieLoader;
+  FileDownloader({
+    Dio? dio,
+    CookieLoader? cookieLoader,
+    List<Duration> networkWaits = defaultNetworkWaits,
+  }) : _dio = dio ?? createDio(),
+       _cookieLoader = cookieLoader,
+       _networkWaits = networkWaits;
 
   final Dio _dio;
 
   /// 缺省为 null（纯 Dart 环境、单测、桌面不需要）：此时行为与之前完全一致。
   final CookieLoader? _cookieLoader;
+
+  /// 网络类失败的等待表。见 [defaultNetworkWaits]。
+  final List<Duration> _networkWaits;
+
+  /// 网络断了之后的重试节奏，累计约 2 分钟。
+  ///
+  /// 熄屏、切 Wi-Fi/蜂窝、进电梯都属于「暂时没有网络」，不是「站点拒绝」：
+  /// 站点多久都不会自己变好，网络却能。原先把这类失败和 403 共用 `retries = 2`，
+  /// 几百毫秒到十几秒就把机会用完了 —— 用户侧看到的就是「熄屏回来报错，
+  /// 点一下重试又好了」。把等待拉到分钟级，多数情况下能在恢复的瞬间自己接上，
+  /// 不需要人工介入。
+  static const List<Duration> defaultNetworkWaits = <Duration>[
+    Duration(seconds: 2),
+    Duration(seconds: 5),
+    Duration(seconds: 10),
+    Duration(seconds: 15),
+    Duration(seconds: 20),
+    Duration(seconds: 30),
+    Duration(seconds: 30),
+  ];
 
   static Dio createDio() {
     return Dio(
@@ -49,9 +73,12 @@ class FileDownloader {
 
   /// 下载到 [target]。返回最终文件。
   ///
-  /// 不支持单文件断点续传：Range 的返回值需要逐站验证（有的站点忽略 Range 直接
-  /// 返 200，然后 append 就会把文件写坏）。需要续传的是 HLS 分片，那里按分片粒度
-  /// 做续传，更可靠。
+  /// 支持字节级续传：`.part` 里已有多少就从 `Range: bytes=<offset>-` 接着下，
+  /// 只认 206 且 `Content-Range` 起点对得上 —— 有的站点忽略 Range 直接回 200，
+  /// 那种情况 append 会把文件写坏，只能丢掉重来。
+  ///
+  /// 失败重试分两套预算：网络类（断网 / 熄屏断流 / TLS 握手中断）按
+  /// [defaultNetworkWaits] 等到分钟级，站点类（403 / 404 / 5xx）走 [retries]。
   Future<File> download({
     required String url,
     required File target,
@@ -142,7 +169,9 @@ class FileDownloader {
     }
 
     Object? lastError;
-    for (int attempt = 0; attempt <= retries; attempt++) {
+    int networkWaits = 0;
+    int retriesUsed = 0;
+    while (true) {
       try {
         int offset = await _partLength(part);
         Response<dynamic> response = await fetch(offset);
@@ -183,8 +212,24 @@ class FileDownloader {
         // 416：残留的 .part 比资源本身还长（地址换过 / 文件被改过），
         // 不删掉的话每次续传都会被拒，只能从头下。
         if (e.response?.statusCode == 416) await _deleteQuietly(part);
-        if (attempt == retries) break;
-        await Future<void>.delayed(_backoff(e, attempt, 400));
+
+        final ({Duration wait, bool network})? next = _nextWait(
+          error: e,
+          networkWaits: networkWaits,
+          retriesUsed: retriesUsed,
+          retries: retries,
+          baseMs: 400,
+        );
+        if (next == null) break;
+        if (next.network) {
+          networkWaits++;
+          _logNetworkWait(url, next.wait, networkWaits, _networkWaits.length);
+        } else {
+          retriesUsed++;
+        }
+        // 等待期间用户可能点了取消，别再白等一轮才撞上 cancel。
+        if (cancelToken?.isCancelled ?? false) break;
+        await Future<void>.delayed(next.wait);
       }
     }
 
@@ -268,7 +313,9 @@ class FileDownloader {
     required int retries,
   }) async {
     Object? lastError;
-    for (int attempt = 0; attempt <= retries; attempt++) {
+    int networkWaits = 0;
+    int retriesUsed = 0;
+    while (true) {
       try {
         final Response<List<int>> response = await _dio.get<List<int>>(
           url,
@@ -279,8 +326,22 @@ class FileDownloader {
       } on DioException catch (e) {
         lastError = e;
         if (CancelToken.isCancel(e)) rethrow;
-        if (attempt == retries) break;
-        await Future<void>.delayed(_backoff(e, attempt, 300));
+        final ({Duration wait, bool network})? next = _nextWait(
+          error: e,
+          networkWaits: networkWaits,
+          retriesUsed: retriesUsed,
+          retries: retries,
+          baseMs: 300,
+        );
+        if (next == null) break;
+        if (next.network) {
+          networkWaits++;
+          _logNetworkWait(url, next.wait, networkWaits, _networkWaits.length);
+        } else {
+          retriesUsed++;
+        }
+        if (cancelToken?.isCancelled ?? false) break;
+        await Future<void>.delayed(next.wait);
       }
     }
     _logTimeout(lastError, url);
@@ -498,6 +559,9 @@ class FileDownloader {
   /// 连不上（超时 / 连接失败）基本是站点限流或线路抖动，几百毫秒后重来只会
   /// 立刻再撞一次；这类错误要多等一会儿才有机会恢复。`unknown` 也归进来：
   /// 在下载路径上它几乎都是响应体下到一半被断开，成因同样是限流或断线。
+  ///
+  /// 注意这里只管「非网络类」以外的短退避；真正的网络中断走 [_nextWait] 的
+  /// 长等待表，两者预算互不占用。
   static Duration _backoff(DioException error, int attempt, int baseMs) {
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
@@ -507,6 +571,77 @@ class FileDownloader {
         return Duration(seconds: 2 + attempt * 4);
       default:
         return Duration(milliseconds: baseMs * (attempt + 1));
+    }
+  }
+
+  /// 这次失败要不要再试；返回 null 表示放弃。
+  ///
+  /// 网络类失败和「站点拒绝」分开计预算：
+  /// - 网络类：最多等完 [_networkWaits] 整张表，越等越久，给网络恢复留时间；
+  /// - 其余（403 / 404 / 5xx）：沿用 `retries` 的短退避，等多久都一样。
+  ({Duration wait, bool network})? _nextWait({
+    required DioException error,
+    required int networkWaits,
+    required int retriesUsed,
+    required int retries,
+    required int baseMs,
+  }) {
+    if (_isNetworkFailure(error)) {
+      if (networkWaits >= _networkWaits.length) return null;
+      return (wait: _networkWaits[networkWaits], network: true);
+    }
+    if (retriesUsed >= retries) return null;
+    return (wait: _backoff(error, retriesUsed, baseMs), network: false);
+  }
+
+  /// 是不是「网络本身断了」而不是「站点拒绝了这次请求」。
+  ///
+  /// `unknown` 要拆开看：dio 把响应体阶段的所有异常都塞进这一类，`error` 上
+  /// 挂的是 [SocketException] / [HandshakeException] / [TlsException]。
+  /// 熄屏时系统回收 socket、切网时 TLS 握手被打断，都会走到这里；而 4xx/5xx
+  /// 是 [DioExceptionType.badResponse]，不在此列。
+  static bool _isNetworkFailure(DioException error) {
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.connectionError:
+        return true;
+      case DioExceptionType.unknown:
+        final Object? cause = error.error;
+        if (cause is SocketException ||
+            cause is TlsException ||
+            cause is HandshakeException) {
+          return true;
+        }
+        // 流里抛出的异常经过几层包装后有时只剩 message，靠关键字兜底。
+        final String raw = _rawCause(error);
+        return raw.contains('Connection closed') ||
+            raw.contains('Connection reset') ||
+            raw.contains('Broken pipe') ||
+            raw.contains('HandshakeException');
+      default:
+        return false;
+    }
+  }
+
+  /// 记录「正在等网络恢复」。
+  ///
+  /// 首轮用 warn：正常网络下不该出现，出现就说明刚才断过。之后转 debug，
+  /// 否则一次熄屏会被 6 个并发分片各刷 7 条。
+  static void _logNetworkWait(
+    String url,
+    Duration wait,
+    int round,
+    int total,
+  ) {
+    final String host = Uri.tryParse(url)?.host ?? url;
+    final String message =
+        '网络中断，${wait.inSeconds}s 后重试（$round/$total）$host';
+    if (round == 1) {
+      logWarn('Download', message);
+    } else {
+      logDebug('Download', message);
     }
   }
 
@@ -577,7 +712,7 @@ class FileDownloader {
     return error?.toString() ?? '未知错误';
   }
 
-  /// `unknown` 的实际含义几乎只有一个：响应体下到一半连接没了。
+  /// `unknown` 的实际含义几乎只有一个：连接在某个阶段没了。
   ///
   /// 已下的字节留在 `.part` 里，重试会从断点接着下，所以文案直接告诉用户
   /// 「重试就行」，而不是让他回原页面重新嗅探。
@@ -585,10 +720,20 @@ class FileDownloader {
     final String raw = _rawCause(error);
     if (raw.isEmpty) return '未知错误';
     final String detail = raw.length > 120 ? '${raw.substring(0, 120)}…' : raw;
+    // 握手阶段被中断：连接还没建起来就没了。熄屏、切网、飞行模式都会这样，
+    // 和「响应体下到一半断掉」是两回事，但对用户来说处理方式一样。
+    if (raw.contains('HandshakeException')) {
+      return '连接在 TLS 握手阶段被中断，通常是熄屏断网或网络切换；'
+          '已下的部分会保留，重试可接着下（$detail）';
+    }
     if (raw.contains('Connection closed') ||
         raw.contains('Connection reset') ||
         raw.contains('Broken pipe')) {
       return '连接被中途断开，已下的部分会保留；重试可接着下（$detail）';
+    }
+    if (raw.contains('Network is unreachable') ||
+        raw.contains('Failed host lookup')) {
+      return '当前没有可用网络，已下的部分会保留；恢复网络后重试可接着下（$detail）';
     }
     return '未知错误（$detail）';
   }

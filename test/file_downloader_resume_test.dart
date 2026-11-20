@@ -110,7 +110,12 @@ class _AlwaysBreakAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-FileDownloader _downloader(HttpClientAdapter adapter) {
+/// [networkWaits] 是网络类失败的重试节奏，用例里一律传零时长或空表，
+/// 免得真的等上两分钟；不测网络重试本身，只测续传与文案。
+FileDownloader _downloader(
+  HttpClientAdapter adapter, {
+  List<Duration> networkWaits = const <Duration>[],
+}) {
   final Dio dio = Dio(
     BaseOptions(
       validateStatus: (int? code) => code != null && code < 400,
@@ -118,7 +123,7 @@ FileDownloader _downloader(HttpClientAdapter adapter) {
     ),
   );
   dio.httpClientAdapter = adapter;
-  return FileDownloader(dio: dio);
+  return FileDownloader(dio: dio, networkWaits: networkWaits);
 }
 
 void main() {
@@ -138,10 +143,10 @@ void main() {
     final _ScriptedAdapter adapter = _ScriptedAdapter(full);
     final File target = File('${dir.path}/v.mp4');
 
-    await _downloader(adapter).download(
-      url: 'https://s.surrit.com/v.mp4',
-      target: target,
-    );
+    await _downloader(
+      adapter,
+      networkWaits: const <Duration>[Duration.zero],
+    ).download(url: 'https://s.surrit.com/v.mp4', target: target);
 
     expect(adapter.calls, 2);
     // 第二次请求接着半截往下要，不是从头重来
@@ -154,10 +159,10 @@ void main() {
     final _ScriptedAdapter adapter = _ScriptedAdapter(full, ignoreRange: true);
     final File target = File('${dir.path}/v.mp4');
 
-    await _downloader(adapter).download(
-      url: 'https://s.surrit.com/v.mp4',
-      target: target,
-    );
+    await _downloader(
+      adapter,
+      networkWaits: const <Duration>[Duration.zero],
+    ).download(url: 'https://s.surrit.com/v.mp4', target: target);
 
     // 断流一次 → 带 Range 被回 200（已追加坏）→ 丢掉重新干净下一次
     expect(adapter.calls, 3);
