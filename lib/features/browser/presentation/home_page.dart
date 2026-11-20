@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../resolver/presentation/video_resolver_page.dart';
 import '../providers/tab_manager.dart';
 import 'bookmark_page.dart';
 import 'history_page.dart';
@@ -54,9 +55,14 @@ class HomePage extends ConsumerWidget {
               ),
               const SizedBox(height: 6),
               // 常用入口贴着输入框放：输入框是这一屏的主操作，
-              // 历史 / 收藏是它的两个补充动作，不该飘到页面其它角落。
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              // 历史 / 收藏 / 解析是它的三个补充动作，不该飘到页面其它角落。
+              //
+              // 用 Wrap 不用 Row：三个带文字的按钮在 320dp 宽的机器上会顶出屏幕，
+              // 换行总比溢出条纹好。
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 2,
+                runSpacing: 2,
                 children: <Widget>[
                   _HomeAction(
                     icon: Icons.history,
@@ -67,13 +73,22 @@ class HomePage extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 4),
                   _HomeAction(
                     icon: Icons.star_border,
                     label: '收藏夹',
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (BuildContext context) => const BookmarkPage(),
+                      ),
+                    ),
+                  ),
+                  _HomeAction(
+                    icon: Icons.movie_outlined,
+                    label: '视频解析',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (BuildContext context) =>
+                            const VideoResolverPage(),
                       ),
                     ),
                   ),
