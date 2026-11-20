@@ -21,6 +21,10 @@ class _SniffingBrowserAppState extends ConsumerState<SniffingBrowserApp> {
     // 恢复上次的转换 / 下载记录和历史、收藏。放在这里而不是 main()：
     // Provider 树在 runApp 之后才存在；也不能放进 build，否则每次重建都会
     // 再读一次磁盘。
+    //
+    // 设置放最前面：下载队列的代理与分片并发都是现取，但启动日志里先有
+    // 「代理 xx、并发 x」才好排查后面的事。
+    unawaited(ref.read(appSettingsProvider).load());
     unawaited(ref.read(transcodeQueueProvider).restore());
     unawaited(ref.read(downloadQueueProvider).restore());
     unawaited(ref.read(historyProvider).restore());

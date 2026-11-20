@@ -12,6 +12,7 @@ import '../features/downloader/data/file_downloader.dart';
 import '../features/sniffer/data/sniffer_service.dart';
 import '../features/sniffer/data/thumbnail_cache.dart';
 import '../features/sniffer/data/thumbnail_service.dart';
+import '../features/settings/data/app_settings.dart';
 import '../features/transcoder/data/transcode_queue.dart';
 import '../features/transcoder/data/transcode_store.dart';
 
@@ -60,13 +61,26 @@ final ChangeNotifierProvider<TranscodeQueue> transcodeQueueProvider =
 /// `WebResourceRequest` 不返回），下载时按每个请求 URL 现取，见 5.6。
 final ChangeNotifierProvider<DownloadQueue> downloadQueueProvider =
     ChangeNotifierProvider<DownloadQueue>(
-      (Ref ref) => DownloadQueue(
-        downloader: FileDownloader(cookieLoader: WebViewCookies.forUrl),
-        transcoder: ref.watch(transcodeQueueProvider),
-        poolSupplier: () => ref.read(snifferProvider).items,
-        store: DownloadStore(),
-      ),
+      (Ref ref) {
+        // 用 read 而不是 watch：设置一变就重建队列会 dispose 掉正在跑的下载。
+        final AppSettings settings = ref.read(appSettingsProvider);
+        return DownloadQueue(
+          downloader: FileDownloader(
+            // 代理按请求现取，设置页改完对后续请求立刻生效。
+            dio: FileDownloader.createDio(proxy: () => settings.proxyRule),
+            cookieLoader: WebViewCookies.forUrl,
+          ),
+          transcoder: ref.watch(transcodeQueueProvider),
+          poolSupplier: () => ref.read(snifferProvider).items,
+          segmentConcurrency: () => settings.segmentConcurrency,
+          store: DownloadStore(),
+        );
+      },
     );
+
+/// 应用设置：分片并发、代理。落盘在私有根目录的 `settings.json`。
+final ChangeNotifierProvider<AppSettings> appSettingsProvider =
+    ChangeNotifierProvider<AppSettings>((Ref ref) => AppSettings());
 
 /// 浏览历史。全局一份——历史本来就跨页签，切页签不该换一份记录。
 ///
