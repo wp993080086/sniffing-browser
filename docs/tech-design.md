@@ -770,8 +770,18 @@ CDN 掐长连接、Wi-Fi 与蜂窝切换也会走到同一条路径。后台冻�
 
 `android/app/src/main/kotlin/com/wp/sniffing_browser/DownloadForegroundService.kt`：
 
-- 只做一件事 —— `startForeground` 把进程钉在前台状态，**真正的下载仍在 Dart 侧**，
+- 做两件事 —— `startForeground` 把进程钉在前台状态，以及在 `onCreate` 拿
+  `PARTIAL_WAKE_LOCK` 阻止熄屏后 CPU 进 Doze。**真正的下载仍在 Dart 侧**，
   不搬进 Service（搬了要跨进程传 CancelToken / 进度 / 文件句柄，没有收益）；
+- **前台服务 ≠ 唤醒锁**（2026-11-21 实证）。只挂通知时，熄屏后进程确实还活着、
+  通知也在，但 CPU 睡了：Dart 的 `Future.delayed` 不触发、TCP 读写挂起，
+  进度完全不前进；亮屏后 CPU 恢复，重连定时器才跑起来，于是「过一会又好了」。
+  这与「应用被杀」是两回事，从界面上只能看到进度冻住。
+  Manifest 加 `WAKE_LOCK`（普通权限，无需运行时申请），service `onCreate` 调
+  `lock.acquire()`、`onDestroy` 调 `release()`。不设超时 —— 大文件可能下很久，
+  Dart 侧没有续期通道；进程被杀时系统会自己回收锁，不会泄漏。
+  等待网络期间也持有：否则 3/10/20/30/60s 的重试定时器同样被冻住，
+  永远等不到网络恢复。
 - 调度在 `DownloadQueue._pump`：有任务在跑就 start，全跑完就 stop。放在 `_pump`
   而不是 `_start` 的 finally 里，是因为「一条结束立刻起下一条」时后者会撤了又挂，
   通知跟着闪；
@@ -789,7 +799,8 @@ Android 13+ 用户拒绝通知权限时服务照常运行，只是通知不可�
 
 #### 5.3.5 断网不判死：「等待网络」与自动续传（2026-11-20）
 
-前台服务挡住了「进程被冻结」，没挡住「网络被挂起」。实测日志：
+前台服务挡住了「进程被冻结」，唤醒锁挡住了「CPU 休眠」，但都没挡住
+「网络被系统挂起」（Wi-Fi 休眠、蜂窝切换）。实测日志：
 
 ```
 Download 请求失败 unknown surrit.com HandshakeException: Connection terminated during handshake

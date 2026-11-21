@@ -4,6 +4,10 @@
          表现就是下载到一半报连接中断。API 34+ 需要单独声明 dataSync 类型权限。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- 前台服务只把进程钉在前台，不阻止熄屏后 CPU 进 Doze：CPU 一睡，
+         Dart 定时器和 TCP 连接一起冻住，进度完全不动，直到亮屏才恢复。
+         下载期间持有 PARTIAL_WAKE_LOCK 才能让传输真正跑完。普通权限，无需运行时申请。 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- Android 13+ 前台服务的通知要这条权限才显示得出来，拒绝了也不影响下载。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- 导出到系统媒体库：API 29+ 走 MediaStore 无需权限；此处只给 API <= 28 的兜底路径。 -->
