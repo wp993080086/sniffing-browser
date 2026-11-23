@@ -1,6 +1,6 @@
 # Sniffing Browser
 
-跨端媒体嗅探下载器。内置浏览器打开网页，自动捕获页面里的图片、音频、视频和 HLS 流，支持下载、转码与导出到相册。
+跨端媒体嗅探下载器。内置浏览器打开网页，自动捕获页面里的图片、音频、视频、HLS 与 DASH 资源，支持下载、转码、存储管理与导出到相册。
 
 目标平台：Android、HarmonyOS NEXT、Windows。一套 Flutter/Dart 代码。
 
@@ -38,8 +38,10 @@
 | 转码（Android） | 原生 `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`（LGPL）经 MethodChannel 桥接，完成后自动写进 MediaStore | 已实现，待真机复验 MP3 落库 |
 | 转换页与持久化 | 独立「转换」页（入口在下载页 AppBar，带进行中角标）；任务落盘 `transcode_jobs.json`，重启后 pending 续跑、running 标中断；已完成项可「打开」产物 | 单元测试覆盖 |
 | 产物打开 / 分享 | 下载项菜单「打开」全平台可用（Android 走 FileProvider 的 `content://`，无需先导出）；「分享」仅 Android，拉起系统分享面板 | 编译 + 单元测试覆盖，待真机 |
-| 设置页 | 顶栏齿轮进入：HLS / DASH 分片并发（1~12，默认 6）、HTTP/SOCKS5 代理（留空走环境变量）、站点规则、登录态管理 | 编译 + 单测，待真机 |
+| 设置页 | 顶栏齿轮进入：HLS / DASH 分片并发（1~12，默认 6）、HTTP/SOCKS5 代理（留空走环境变量）、站点规则、登录态管理、存储管理 | 编译 + 单测，待真机 |
 | 登录态管理 | 按站点查看 WebView Cookie 的名称 / 域名 / 过期时间（不显示值），清除该站或全部 Cookie；页面内说明「自动登录由网站发长期凭证决定」 | 单测覆盖摘要判定，真机待验 |
+| 存储管理 | 设置页进入：统计私有 `downloads/` / `tmp/` 占用，区分产物、续传 `.part`、无主文件与可清理临时项；二次确认后只删无主文件和非在用临时项，不碰已导出的 MediaStore 副本 | 单测覆盖分类与清理边界，待真机 |
+| 下载大小显示 | 普通文件显示「已下载 / 总大小」；HLS/DASH 按已完成分片字节估算总量并标注“约”；续传时旧分片字节也计入总大小，速度仍以首帧为基线 | 单测覆盖估算与 UI 文案 |
 | Android 转码回退 | TS→MP4 的 `-c copy` 失败时自动改跑「视频复制 + 音频 AAC 重编」，两次都失败才报错 | Kotlin 编译通过，真机待验 |
 | 下载记录持久化 | `download_tasks.json`（私有 files 目录，不用 cache）；重启后历史还在，没下完的标「已中断，可重试」且不自动重跑 | 单元测试覆盖 |
 | 视频解析 | 首页「视频解析」入口：粘抖音分享链接，在**可见** WebView 里注入 hook，直接读页面自己拿到的 `play_addr`（完整 mp4 直链，支持 Range），一键入下载队列；12 秒无果自动改走分享页 SSR 数据，40 秒判失败 | 编译 + 单测覆盖，待真机 |
@@ -84,7 +86,7 @@ bash ~/.devtools/get-ffmpeg.sh
 
 ## 验证脚本
 
-除了常规单测，还有两套真实链路的端到端验证。默认跳过，需要显式开启：
+除了常规单测，还有三条真实链路的端到端验证。默认跳过，需要显式开启：
 
 ```bash
 # 下载链路：单文件 / HLS 合并 / AES-128 解密（12 项）
@@ -142,14 +144,16 @@ RUN_E2E=1 flutter test test/transcode_e2e_test.dart
 `runZonedGuarded` 三重），崩溃信息会写进同一个文件。
 
 
-## Android 原生能力（2026-11-12 新增）
+## Android 原生能力（2026-11-12 新增，11-23 扩充）
 
-`MainActivity.kt` 注册两个 MethodChannel，只在 Android 生效，桌面与鸿蒙不受影响：
+`MainActivity.kt` 注册四个 MethodChannel，只在 Android 生效，桌面与鸿蒙不受影响：
 
 | 通道 | 实现 | 能力 |
 | --- | --- | --- |
 | `sniffing_browser/media_exporter` | `MediaExporterHandler.kt` | API 29+ 走 MediaStore + `IS_PENDING` 写入相册 / 音乐 / 下载目录，无需存储权限；API ≤ 28 走公共目录 + 媒体扫描 |
-| `sniffing_browser/transcoder` | `TranscodeBridge.kt` | FFmpegKit 执行 TS→MP4、抽 MP3、DASH 音视频合并，带进度与取消 |
+| `sniffing_browser/transcoder` | `TranscodeBridge.kt` | FFmpegKit 执行 TS→MP4、抽 MP3、DASH 音视频合并，带进度与取消；TS→MP4 失败时自动回退「视频复制 + 音频 AAC 重编」 |
+| `sniffing_browser/thumbnailer` | `ThumbnailBridge.kt` | `MediaMetadataRetriever` 抽视频首帧，串行执行避免并发解码 |
+| `sniffing_browser/download_service` | `DownloadServiceBridge.kt` | 下载前台服务的通知栏进度与全局暂停 / 继续 / 取消反调 |
 
 转码依赖写在 `android/app/build.gradle.kts`：
 `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`（LGPL、FFmpeg 8.1.2、
@@ -167,13 +171,12 @@ AAR 只发布 `arm64-v8a` / `x86_64`，所以打包时用
 - `MediaExporter` 的 HarmonyOS（`showAssetsCreationDialog`）实现
 - 鸿蒙侧 FFmpeg 接入（`@ohos/ffmpeg-kit` 或同等 ArkTS 桥接）
 - `ohos/` 平台目录（需要 Flutter-OH SDK 与 DevEco Studio，本机尚未配置）
-- Android TS→MP4 的「只重编音频」失败回退（桌面已有）
-- DASH 分片重组（当前直接提示不支持）
 - Android 系统级 Wi-Fi 代理：代理需要在设置页手动填，Dart 拿不到系统的代理配置
 - **微信视频号下载**：结构性不可行，不是工程量问题 —— 无网页播放页、链接与会话绑定、
   私有 TLS + AES-128 加密 HLS。市面上的工具都是 PC 端 MITM，手机 App 做不到。
   详见 `docs/tech-design.md` 5.9
-- 抖音之外的平台解析：B 站 / YouTube 是纯 DASH，需要 mpd 解析 + init 段 + 音视频合并
+- 抖音之外的平台解析：B 站 / YouTube 需要站点签名与播放页 hook。MPD 解析、init 段、
+  分片重组与音视频合并已具备（见「已实现」DASH 行），缺的是这些站点特有的签名参数。
 
 ## 运行
 
@@ -216,9 +219,10 @@ lib/
 └── features/
     ├── browser/          # WebView 与地址栏
     ├── sniffer/          # 分类器、捕获服务、CDP 通道、资源面板
-    ├── downloader/       # 下载队列、单文件下载、HLS 子模块
+    ├── downloader/       # 下载队列、单文件下载、HLS / DASH 子模块、下载库
     ├── resolver/         # 站内视频解析（抖音 hook + 解析页）
     ├── transcoder/       # 转换队列与引擎抽象
+    ├── settings/         # 设置、站点规则、登录态、存储管理
     └── diagnostics/      # 日志与通道计数器页面
 ```
 

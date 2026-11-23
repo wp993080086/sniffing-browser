@@ -1711,6 +1711,31 @@ ffprobe 只有 1 条 h264 流，抽音轨直接报 `Output file does not contain
 `CookieManager` 只在 Android 上接了；其余平台给出说明而不是抛平台异常。
 Windows 的嗅探本来就走 CDP，请求头自带 Cookie，也不需要这层。
 
+### 5.12 存储管理与下载大小显示（2026-11-23）
+
+**存储管理。** 设置页新增入口，`StorageManager` 只扫 `StoragePaths.downloads`
+和 `StoragePaths.temp`，按四类展示：`产物`（下载 / 转换记录引用的文件）、
+`断点缓存`（仍可能被续传的 `.part`）、`无主文件`（移除记录后剩下的文件）、
+`临时分片`（HLS / DASH 的 `tmp/<任务ID>/` 与合并中间文件）。
+
+清理动作有两条，均带二次确认并反馈释放量：
+
+- 清理临时分片：只删不属于未结束任务的临时项。失败 / 取消任务仍算未结束，
+  它们的分片要留着续传；正在合并的输出也在保护名单里。
+- 清理无主文件：只删下载目录里既不在 `savedPath` / `transcode_jobs.json`
+  里、也不匹配任何任务文件名的 `.part` 和普通文件。
+
+已导出到相册 / 音乐的 MediaStore 副本不在应用私有目录里，本页既不统计也不删除；
+系统「清除数据」/ 卸载会删掉私有目录，`清除缓存` 通常不动它，页内明确写出差异。
+
+**下载大小显示。** 普通文件由 `Dio.download` 的 `onReceiveProgress` 直接给出
+`received` / `total`，展示准确值。HLS / DASH 没有 `Content-Length`，改为按已完成
+分片的平均体积估算：`totalBytes ≈ bytes / done * total`，UI 写「约」。
+
+续传时 `_prepareSegment` 命中已有 `.part` 不再返回 0，而是返回该片段已落盘的
+字节数，否则估算会明显偏小；速度采样则用首帧做基线，避免旧分片在恢复瞬间
+被算成几 GB/s。速度窗口仍是 1 秒（分片并发下 500ms 经常一片都没落盘）。
+
 ---
 
 ## 6. 数据模型
@@ -1816,16 +1841,22 @@ class M3u8ByteRange { final int length; final int? offset; }
 
 ## 7. 目录结构
 
-以下为**实际目录**（2026-11-11）。早期草案里的 `lib/app.dart`、
-`sniffer/providers/`、`downloader/providers/`、`transcode/`、`library/`、`shared/`
-都不存在；实际是 `lib/app/` 与 `lib/features/transcoder/`，且没有 library 页面。
+以下为**实际目录**（2026-11-23 校准）。早期草案里的 `lib/app.dart`、
+`sniffer/providers/`、`downloader/providers/`、`transcode/`、`shared/`
+都不存在；实际是 `lib/app/` 与 `lib/features/transcoder/`。
+`downloader/presentation/library_page.dart`（下载库）已存在。
+本章是设计推演用的快照，可能与代码有出入；现行目录以
+`.agents/rules/04-目录结构.md` 和实际目录为准。
 
 ```
 sniffing-browser/
-├── android/app/src/main/kotlin/com/sniffing/sniffing_browser/
-│   ├── MainActivity.kt             # 注册两个 MethodChannel
+├── android/app/src/main/kotlin/com/wp/sniffing_browser/
+│   ├── MainActivity.kt             # 注册四个 MethodChannel
 │   ├── MediaExporterHandler.kt     # MediaStore 导出（IS_PENDING）
-│   └── TranscodeBridge.kt          # FFmpegKit 转码、进度、取消
+│   ├── TranscodeBridge.kt          # FFmpegKit 转码、进度、取消、TS→MP4 回退
+│   ├── ThumbnailBridge.kt          # MediaMetadataRetriever 抽帧
+│   ├── DownloadForegroundService.kt # 下载前台服务、通知栏进度、PARTIAL_WAKE_LOCK
+│   └── DownloadServiceBridge.kt    # 通知栏按钮反调 Dart
 ├── windows/                        # Windows 平台工程（含崩溃 dump）
 ├── ohos/                           # 【尚未生成】需 Flutter-OH SDK + DevEco Studio
 ├── docs/
@@ -1841,8 +1872,11 @@ sniffing-browser/
 │   │   ├── platform/
 │   │   │   ├── platform_info.dart  # AppPlatform 枚举 + 平台判定
 │   │   │   ├── storage_paths.dart
-│   │   │   └── media_exporter.dart # 静态工具类，桌面纯 Dart 复制
-│   │   └── utils/{hash_util,format_util,json_file,serial_gate}.dart
+│   │   │   ├── media_exporter.dart # 静态工具类，桌面纯 Dart 复制
+│   │   │   ├── browser_headers.dart / download_foreground_service.dart
+│   │   │   ├── proxy_rule.dart / webview_cookies.dart
+│   │   │   └── json_file.dart / serial_gate.dart
+│   │   └── utils/{hash_util,format_util,site}.dart
 │   └── features/
 │       ├── browser/
 │       │   ├── domain/{history_entry,bookmark_entry}.dart
@@ -1861,32 +1895,44 @@ sniffing-browser/
 │       ├── downloader/
 │       │   ├── domain/{download_task,download_status,dash_pair}.dart
 │       │   ├── data/
-│       │   │   ├── {download_queue,download_store,file_downloader,media_validator}.dart
-│       │   │   └── hls/{hls_downloader,m3u8_parser,m3u8_models,
-│       │   │           aes_decryptor,segment_merger}.dart
-│       │   └── presentation/{download_page,download_tile}.dart
+│       │   │   ├── {download_queue,download_store,file_downloader,
+│       │   │   │    media_validator,segment_writer}.dart
+│       │   │   ├── hls/{hls_downloader,m3u8_parser,m3u8_models,
+│       │   │   │        aes_decryptor,segment_merger}.dart
+│       │   │   └── dash/{dash_downloader,mpd_parser,mpd_models}.dart
+│       │   └── presentation/{download_page,download_tile,library_page}.dart
 │       ├── transcoder/
 │       │   ├── domain/transcode_job.dart
 │       │   ├── data/{transcode_queue,transcode_engine,transcode_store,
 │       │   │         system_ffmpeg_engine}.dart
 │       │   │                        # NativeTranscodeEngine 在 transcode_engine.dart
 │       │   └── presentation/transcode_page.dart
+│       ├── resolver/
+│       │   ├── domain/{resolved_video,resolved_batch}.dart
+│       │   ├── data/douyin_hook.dart
+│       │   └── presentation/video_resolver_page.dart
+│       ├── settings/
+│       │   ├── data/{app_settings,site_rule,storage_manager}.dart
+│       │   └── presentation/{settings_page,site_rules_page,
+│       │                     login_state_page,storage_page}.dart
 │       └── diagnostics/
 │           └── presentation/diagnostics_page.dart
-├── tools/verify_download.dart      # 下载链路端到端验证（12 项，真实 CDN 分片）
-├── test/                           # 11 个测试文件，见 README
+├── tools/verify_download.dart      # 下载链路端到端验证（真实 CDN 分片）
+├── test/                           # 单元测试 + 需 SNIFF_E2E / RUN_E2E=1 开启的端到端测试
 └── pubspec.yaml
 ```
 
-`test/` 下：`media_test.dart`（单元）、`browser_provider_test.dart`（首页与搜索引擎）、
-`download_validation_test.dart`、
-`dash_merge_test.dart`、`dash_merge_ffmpeg_test.dart`（真实 ffmpeg，缺了自动跳过）、
-`native_transcode_engine_test.dart`（原生转码协议）、
-`transcode_library_export_test.dart`（产物入库）、
+`test/` 下的关注点：`media_test.dart`（单元）、`browser_provider_test.dart`（首页与搜索引擎）、
+`dash_merge_test.dart` / `dash_merge_ffmpeg_test.dart`（DASH 配对与合并，真实 ffmpeg 缺了自动跳过）、
+`dash_mpd_test.dart`（MPD 解析与队列集成）、
+`storage_manager_test.dart`（存储分类与清理）、`segment_writer_test.dart`（分片原子写入）、
+`native_transcode_engine_test.dart`（原生转码协议与 TS→MP4 回退）、
+`transcode_library_export_test.dart`（产物入库）、`transcode_dedupe_test.dart`（入队去重与回调）、
 `transcode_store_test.dart`（持久化与重启恢复）、
 `download_store_test.dart`（下载记录持久化与重启恢复）、
 `download_queue_e2e_test.dart` 与 `transcode_e2e_test.dart`（需 `RUN_E2E=1`）。
-`tools/verify_download.dart` 独立 `dart run`，不需要 `RUN_E2E`。
+`tools/verify_download.dart` 不能独立 `dart run`（依赖 flutter/foundation），
+由 `flutter test` + `SNIFF_E2E=1` 驱动，见 README「验证脚本」。
 
 ---
 
