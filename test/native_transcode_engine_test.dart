@@ -68,6 +68,18 @@ void main() {
     expect(progress, <double>[1.0]);
   });
 
+  test('done + audioReencoded：Android 回退后的成功仍按完成处理', () async {
+    mock(
+      startReply: <String, Object?>{
+        'status': 'done',
+        'strategy': 'audioReencoded',
+      },
+    );
+    final List<double> progress = <double>[];
+    await run(NativeTranscodeEngine(), progress.add);
+    expect(progress, <double>[1.0]);
+  });
+
   test('canceled：抛 TranscodeCancelled，UI 才显示「已取消」', () async {
     mock(startReply: <String, Object?>{'status': 'canceled'});
     await expectLater(

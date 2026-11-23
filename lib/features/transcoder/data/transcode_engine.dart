@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 
+import '../../../core/logging/app_log.dart';
 import '../domain/transcode_job.dart';
 
 /// 源文件本身不满足转换前提，比如「要抽音轨，但文件里没有音轨」。
@@ -153,6 +154,11 @@ class NativeTranscodeEngine extends TranscodeEngine {
       final String? message = reply?['message'] as String?;
       switch (status) {
         case 'done':
+          // Android 在 `-c copy` 失败后会回退成「视频复制 + 音频重编」。
+          // 结果一样可用，但不再是秒级无损转封装，记一笔方便排查慢任务。
+          if (reply?['strategy'] == 'audioReencoded') {
+            logInfo('FFmpeg', '无损转封装失败，已改为只重编音频完成转码');
+          }
           onProgress(1);
           return;
         case 'canceled':

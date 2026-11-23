@@ -27,11 +27,16 @@ class TranscodeBridge(private val channel: MethodChannel) : MethodChannel.Method
     @Volatile
     private var activeSessionId: Long? = null
 
+    /** 两次尝试之间也可能被取消，单靠 activeSessionId 会漏掉这个窗口。 */
+    @Volatile
+    private var cancelRequested = false
+
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "isAvailable" -> result.success(checkAvailable())
             "startTranscode" -> start(call, result)
             "cancelTranscode" -> {
+                cancelRequested = true
                 val id = activeSessionId
                 if (id != null) FFmpegKit.cancel(id) else FFmpegKit.cancel()
                 result.success(null)
@@ -68,41 +73,113 @@ class TranscodeBridge(private val channel: MethodChannel) : MethodChannel.Method
             return
         }
 
+        cancelRequested = false
+
         // progress / probe 都要跑在后台：MethodChannel 回调在主线程，
         // FFprobeKit.getMediaInformation 是同步阻塞的，放主线程会卡 UI。
         Thread {
             val totalMs = probeDurationMs(input)
-            // 只留尾部：整段日志可能有几 MB，不能一直堆在内存里。
-            val logTail = StringBuffer()
-            val session = FFmpegKit.executeWithArgumentsAsync(
-                args,
-                { finished ->
-                    // complete callback 已在 FFmpegKit 的工作线程，日志解析放这里；
-                    // 只有 MethodChannel 的回复必须切回主线程。
-                    val logs = logTail.toString().ifEmpty {
-                        finished.allLogsAsString.orEmpty()
-                    }
-                    val payload = buildResult(finished, output, logs)
+            if (kind == "tsToMp4") {
+                runTsToMp4WithFallback(args, input, output, totalMs, result)
+            } else {
+                execute(args, output, totalMs) { payload ->
                     activeSessionId = null
                     mainHandler.post { result.success(payload) }
-                },
-                { log ->
-                    logTail.append(log.message).append('\n')
-                    if (logTail.length > 8000) {
-                        logTail.delete(0, logTail.length - 4000)
-                    }
-                },
-                { statistics ->
-                    if (totalMs > 0) {
-                        val ratio = (statistics.time / totalMs).coerceIn(0.0, 0.99)
-                        mainHandler.post {
-                            channel.invokeMethod("onProgress", ratio, discardResult)
-                        }
-                    }
-                },
-            )
-            activeSessionId = session.sessionId
+                }
+            }
         }.start()
+    }
+
+    /**
+     * TS -> MP4 先试无损 `-c copy`。
+     *
+     * 老式 MPEG-2 音频、AC-3 之类的音轨装不进 MP4，纯流拷贝会失败；
+     * 视频仍然可以直接复制，只把音频重编成 AAC 就能救回大部分片子。
+     * 和桌面 SystemFfmpegEngine 的回退参数保持一致。
+     */
+    private fun runTsToMp4WithFallback(
+        firstArgs: Array<String>,
+        input: String,
+        output: String,
+        totalMs: Double,
+        result: MethodChannel.Result,
+    ) {
+        execute(firstArgs, output, totalMs) { first ->
+            activeSessionId = null
+            val status = first["status"]
+            if (status == "done" || status == "canceled" || cancelRequested) {
+                val payload = if (cancelRequested) mapOf("status" to "canceled") else first
+                mainHandler.post { result.success(payload) }
+                return@execute
+            }
+
+            // 第一次可能已经写了一个半截输出，先清掉再重来；进度条也归零，
+            // 否则用户会看到进度从 90% 突然回到 0 却不知道发生了什么。
+            File(output).delete()
+            mainHandler.post {
+                channel.invokeMethod("onProgress", 0.0, discardResult)
+            }
+
+            val fallbackArgs = arrayOf(
+                "-y", "-hide_banner", "-i", input,
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                "-movflags", "+faststart", output,
+            )
+            execute(fallbackArgs, output, totalMs) { second ->
+                activeSessionId = null
+                val payload = when {
+                    cancelRequested -> mapOf("status" to "canceled")
+                    second["status"] == "done" -> mapOf(
+                        "status" to "done",
+                        "strategy" to "audioReencoded",
+                    )
+                    else -> {
+                        val firstMessage = first["message"] as? String ?: ""
+                        val secondMessage = second["message"] as? String ?: ""
+                        failed(
+                            "无损转封装与只重编音频都失败：$firstMessage；$secondMessage".take(300),
+                        )
+                    }
+                }
+                mainHandler.post { result.success(payload) }
+            }
+        }
+    }
+
+    /** 跑一次 session；日志只留尾部，避免几 MB 日志一直堆在内存里。 */
+    private fun execute(
+        args: Array<String>,
+        output: String,
+        totalMs: Double,
+        onDone: (Map<String, Any?>) -> Unit,
+    ) {
+        val logTail = StringBuffer()
+        val session = FFmpegKit.executeWithArgumentsAsync(
+            args,
+            { finished ->
+                // complete callback 已在 FFmpegKit 的工作线程，日志解析放这里；
+                // 只有 MethodChannel 的回复必须切回主线程。
+                val logs = logTail.toString().ifEmpty {
+                    finished.allLogsAsString.orEmpty()
+                }
+                onDone(buildResult(finished, output, logs))
+            },
+            { log ->
+                logTail.append(log.message).append('\n')
+                if (logTail.length > 8000) {
+                    logTail.delete(0, logTail.length - 4000)
+                }
+            },
+            { statistics ->
+                if (totalMs > 0) {
+                    val ratio = (statistics.time / totalMs).coerceIn(0.0, 0.99)
+                    mainHandler.post {
+                        channel.invokeMethod("onProgress", ratio, discardResult)
+                    }
+                }
+            },
+        )
+        activeSessionId = session.sessionId
     }
 
     /** 与桌面 SystemFfmpegEngine._argsFor 保持一致，避免两端命令走偏。 */
