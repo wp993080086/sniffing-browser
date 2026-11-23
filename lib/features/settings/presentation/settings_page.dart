@@ -5,6 +5,7 @@ import '../../../app/providers.dart';
 import '../data/app_settings.dart';
 import 'login_state_page.dart';
 import 'site_rules_page.dart';
+import 'storage_page.dart';
 
 /// 设置页。入口在顶栏第二层的齿轮。
 ///
@@ -113,6 +114,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             '${AppSettings.defaultSegmentConcurrency}。'
             '频繁出现「第 N 个分片失败」通常是被 CDN 限流，调到 3 或更低再试；'
             '网络很好时调高到 8~10 能略快一些。',
+          ),
+          const SizedBox(height: 20),
+          _SectionTitle('存储'),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.storage_outlined, size: 20),
+            title: const Text('存储管理', style: TextStyle(fontSize: 13)),
+            subtitle: Text(
+              '查看下载 / 转换 / 临时文件占用并清理',
+              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+            ),
+            trailing: const Icon(Icons.chevron_right, size: 18),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => const StoragePage(),
+              ),
+            ),
           ),
           const SizedBox(height: 20),
           _SectionTitle('网络'),

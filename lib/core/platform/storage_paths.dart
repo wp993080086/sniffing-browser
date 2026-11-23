@@ -91,7 +91,7 @@ class StoragePaths {
     return dir;
   }
 
-  /// 每个 HLS 任务一个独立临时目录，失败时整目录删除即可。
+  /// 每个 HLS / DASH 任务一个独立临时目录，失败时整目录删除即可。
   static Directory tempDirFor(String taskId) =>
       Directory(p.join(temp.path, taskId));
 
