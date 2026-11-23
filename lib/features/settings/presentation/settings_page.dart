@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../data/app_settings.dart';
+import 'login_state_page.dart';
 import 'site_rules_page.dart';
 
 /// 设置页。入口在顶栏第二层的齿轮。
@@ -58,6 +59,22 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (BuildContext context) => const SiteRulesPage(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.login_outlined, size: 20),
+            title: const Text('登录态管理', style: TextStyle(fontSize: 13)),
+            subtitle: Text(
+              '查看 / 清除网站 Cookie，登录后下载不用重复填头的那套',
+              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+            ),
+            trailing: const Icon(Icons.chevron_right, size: 18),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => const LoginStatePage(),
               ),
             ),
           ),
