@@ -59,12 +59,11 @@ void main() {
       expect(result.length, 120);
     });
 
-    test('非 HLS 类型不加标题', () {
+    test('普通媒体类型不加标题', () {
       for (final MediaType type in <MediaType>[
         MediaType.video,
         MediaType.audio,
         MediaType.image,
-        MediaType.dash,
         MediaType.other,
       ]) {
         expect(
@@ -72,6 +71,17 @@ void main() {
           'clip.mp4',
         );
       }
+    });
+
+    test('DASH 清单同样带来源页标题', () {
+      expect(
+        DownloadQueue.fileNameWithPageTitle(
+          'manifest.mpd',
+          MediaType.dash,
+          '某某视频',
+        ),
+        'manifest_某某视频.mpd',
+      );
     });
   });
 }

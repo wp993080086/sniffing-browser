@@ -19,6 +19,7 @@ import '../../transcoder/domain/transcode_job.dart';
 import '../domain/dash_pair.dart';
 import '../domain/download_status.dart';
 import '../domain/download_task.dart';
+import 'dash/dash_downloader.dart';
 import 'download_store.dart';
 import 'file_downloader.dart';
 import 'hls/hls_downloader.dart';
@@ -35,6 +36,7 @@ class DownloadQueue extends ChangeNotifier {
   DownloadQueue({
     FileDownloader? downloader,
     HlsDownloader? hlsDownloader,
+    DashDownloader? dashDownloader,
     TranscodeQueue? transcoder,
     List<MediaItem> Function()? poolSupplier,
     DownloadStore? store,
@@ -55,6 +57,13 @@ class DownloadQueue extends ChangeNotifier {
           downloader: _downloader,
           segmentConcurrency: segmentConcurrency,
         );
+    // DASH 也复用同一个 downloader：Cookie、代理、403 换头策略必须一致。
+    _dash =
+        dashDownloader ??
+        DashDownloader(
+          downloader: _downloader,
+          segmentConcurrency: segmentConcurrency,
+        );
     // 通知栏按钮是全局操作，反调这里；platform 层不持有队列引用。
     DownloadForegroundService.setActionHandler(
       onPauseAll: pauseAll,
@@ -65,6 +74,7 @@ class DownloadQueue extends ChangeNotifier {
 
   final FileDownloader _downloader;
   late final HlsDownloader _hls;
+  late final DashDownloader _dash;
 
   /// 任务记录的落盘。为 null 表示不持久化（测试用）。
   final DownloadStore? _store;
@@ -649,7 +659,7 @@ class DownloadQueue extends ChangeNotifier {
     if (task.type == MediaType.hls) {
       await _runHls(task, token);
     } else if (task.type == MediaType.dash) {
-      throw DownloadException('暂不支持 DASH 分片重组，可等待后续版本');
+      await _runDash(task, token);
     } else {
       await _runFile(task, token);
     }
@@ -890,10 +900,110 @@ class DownloadQueue extends ChangeNotifier {
     task.complete(target.path, containerExt: result.container);
   }
 
-  /// HLS 的文件名带上来源页标题：`playlist.m3u8` → `playlist_某某视频.m3u8`。
+  Future<void> _runDash(DownloadTask task, CancelToken token) async {
+    final Directory workDir = StoragePaths.tempDirFor(task.id);
+    // 输出放在 workDir 之外：下载器成功后会删掉整个 workDir。
+    final File rawVideo = File(
+      p.join(StoragePaths.temp.path, '${task.id}.dash.out'),
+    );
+    final File rawAudio = File(
+      p.join(StoragePaths.temp.path, '${task.id}.dash.audio.out'),
+    );
+
+    final Stopwatch stopwatch = Stopwatch()..start();
+    int lastSampleMs = 0;
+    int lastSampleBytes = 0;
+
+    final DashDownloadResult result = await _dash.download(
+      manifestUrl: task.url,
+      workDir: workDir,
+      output: rawVideo,
+      audioOutput: rawAudio,
+      headers: task.headers,
+      userCancelToken: token,
+      onProgress: (DashProgress progress) {
+        task.updateSegments(progress.done, progress.total);
+        final int elapsed = stopwatch.elapsedMilliseconds;
+        if (elapsed - lastSampleMs >= 1000) {
+          final double seconds = (elapsed - lastSampleMs) / 1000;
+          if (seconds > 0) {
+            task.setSpeed((progress.bytes - lastSampleBytes) / seconds);
+          }
+          lastSampleMs = elapsed;
+          lastSampleBytes = progress.bytes;
+        }
+        task.receivedBytes = progress.bytes;
+        _pushNotificationProgress();
+      },
+    );
+
+    final String baseName = p.basenameWithoutExtension(task.fileName);
+    final File target = StoragePaths.uniqueFile(
+      '$baseName.${result.container}',
+    );
+    if (await target.exists()) {
+      await target.delete();
+    }
+    await result.file.rename(target.path);
+
+    task.complete(target.path, containerExt: result.container);
+    task.mergedAudio = result.hasAudio ? false : null;
+    if (result.audioError != null) {
+      logWarn('Download', '${task.fileName} 的音轨没下成：${result.audioError}');
+    }
+
+    if (result.audioFile != null) {
+      _scheduleDashMerge(
+        task,
+        videoPath: target.path,
+        audioPath: result.audioFile!.path,
+      );
+    }
+  }
+
+  /// MPD 下载产生的两条轨合并。和嗅探分片那套 [_scheduleMerge] 的区别是
+  /// 这里没有单独的音轨任务，音频文件由 DashDownloader 直接产出。
+  void _scheduleDashMerge(
+    DownloadTask task, {
+    required String videoPath,
+    required String audioPath,
+  }) {
+    final TranscodeQueue? transcoder = _transcoder;
+    if (transcoder == null) return;
+    final File out = File(
+      p.join(StoragePaths.temp.path, '${task.id}.dash.merge.mp4'),
+    );
+    logInfo('Download', 'DASH 音视频都已就绪，开始合并: ${task.fileName}');
+
+    transcoder.enqueue(
+      sourcePath: videoPath,
+      secondarySourcePath: audioPath,
+      kind: TranscodeKind.dashMerge,
+      sourceTaskId: task.id,
+      displayName: task.fileName,
+      outputPath: out.path,
+      replaceSource: true,
+      onFinished: (TranscodeStatus status) {
+        if (_disposed) return;
+        final bool ok = status == TranscodeStatus.completed;
+        task.mergedAudio = ok;
+        if (ok) {
+          task.container = 'mp4';
+          task.needsRemux = false;
+        } else {
+          logWarn('Download', 'DASH 合并失败（${status.label}），保留无声视频');
+        }
+        _safeNotify();
+        _schedulePersist();
+      },
+    );
+  }
+
+  /// HLS / DASH 清单文件名带上来源页标题：`playlist.m3u8` → `playlist_某某视频.m3u8`。
   ///
-  /// 只处理 HLS —— 图片/音频/普通视频的文件名本身通常就有辨识度，
-  /// 而 m3u8 几乎每个站都叫 playlist / index，不加来源根本分不清。
+  /// 只处理清单 —— 图片/音频/普通视频的文件名本身通常就有辨识度，
+  /// 而 m3u8 / mpd 几乎每个站都叫 playlist / index / manifest，
+  /// 不加来源根本分不清。
   @visibleForTesting
   static String fileNameWithPageTitle(
     String fileName,
@@ -901,7 +1011,9 @@ class DownloadQueue extends ChangeNotifier {
     String? pageTitle,
   ) {
     final String title = pageTitle?.trim() ?? '';
-    if (type != MediaType.hls || title.isEmpty) return fileName;
+    if ((type != MediaType.hls && type != MediaType.dash) || title.isEmpty) {
+      return fileName;
+    }
     final String ext = p.extension(fileName);
     final String base = p.basenameWithoutExtension(fileName);
     return StoragePaths.sanitizeFileName('${base}_$title$ext');
