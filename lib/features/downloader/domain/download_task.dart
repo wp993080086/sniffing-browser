@@ -100,11 +100,17 @@ class DownloadTask {
     }
   }
 
-  void updateSegments(int done, int total) {
+  void updateSegments(int done, int total, {int? bytes}) {
     if (_disposed) return;
     segmentDone = done;
+    if (bytes != null) receivedBytes = bytes;
     if (total <= 0) return;
     totalSegments = total;
+    // 流媒体没有 Content-Length，按已完成分片的平均体积估一个总量，
+    // 让界面能显示「已下载 X / 约 Y」而不是只有份数。
+    if (bytes != null && done > 0) {
+      totalBytes = (bytes / done * total).round();
+    }
     progress.value = (done / total).clamp(0.0, 1.0);
   }
 

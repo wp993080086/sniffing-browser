@@ -105,4 +105,26 @@ void main() {
     // 206 / 430 = 47.9%，四舍五入到 48。
     expect(find.text('206/430 分片 · 48%'), findsOneWidget);
   });
+
+  testWidgets('流媒体任务显示已下载大小与估算总大小', (WidgetTester tester) async {
+    final DownloadTask task = DownloadTask(
+      id: 'h2',
+      mediaId: 'm-h2',
+      url: 'https://example.com/video.mpd',
+      type: MediaType.dash,
+      fileName: 'manifest.mpd',
+      createdAt: DateTime(2026, 11, 23),
+      isStream: true,
+    )..setStatus(DownloadStatus.running);
+    task.updateSegments(5, 10, bytes: 1024);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(home: Scaffold(body: DownloadTile(task: task))),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('已下载 1.0 KB / 约 2.0 KB'), findsOneWidget);
+  });
 }

@@ -19,8 +19,8 @@ class HlsProgress {
   final int done;
   final int total;
 
-  /// 本次下载真正写盘的累计字节数，断点续传跳过的分片不计入。
-  /// 只用于算速度，进度百分比仍然按分片数走。
+  /// 当前已落盘的累计字节数，命中 `.part` 的分片也计入（估算总大小要用）。
+  /// 速度由队列以首帧为基线，不会因为续传瞬间多出旧分片而虚高。
   final int bytes;
 
   double get fraction => total <= 0 ? 0 : (done / total).clamp(0.0, 1.0);
@@ -240,12 +240,11 @@ class HlsDownloader {
     return (playlist: playlist, variantLabel: variantLabel);
   }
 
-  /// 下载 + 解密单个分片，产出 `seg_<index>.part`。
+  /// 下载 + 解密单个分片，返回它当前落盘的字节数。
   ///
-  /// 支持分片级断点续传：`.part` 已存在且非空就直接跳过。
-  /// 这比记录“已完成序号列表”可靠 —— 文件在就是完成，文件不在就重下。
-  /// 准备单个分片，返回本次新写盘的字节数（已存在则 0，避免续传时把
-  /// 跳过的旧分片算进速度里，算出个虚高的数字）。
+  /// `.part` 已存在且非空就直接跳过 —— 文件在就是完成，比记录已完成序号可靠。
+  /// 命中缓存时也返回已有字节供总大小估算；速度由队列以首帧为基线，
+  /// 不会因为续传瞬间多出一批旧分片而虚高。
   Future<int> _prepareSegment({
     required int index,
     required M3u8Segment segment,
@@ -254,8 +253,9 @@ class HlsDownloader {
     required CancelToken cancelToken,
   }) async {
     final File partFile = File(p.join(workDir.path, 'seg_$index.part'));
-    if (await partFile.exists() && await partFile.length() > 0) {
-      return 0;
+    if (await partFile.exists()) {
+      final int cached = await partFile.length();
+      if (cached > 0) return cached;
     }
 
     final Map<String, String> segmentHeaders = Map<String, String>.from(

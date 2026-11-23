@@ -814,9 +814,10 @@ class DownloadQueue extends ChangeNotifier {
 
   Future<void> _runFile(DownloadTask task, CancelToken token) async {
     final File target = StoragePaths.uniqueFile(task.fileName);
-    final Stopwatch stopwatch = Stopwatch()..start();
-    int lastSampleMs = 0;
-    int lastSampleBytes = 0;
+    final _SpeedSampler speed = _SpeedSampler(
+      window: const Duration(milliseconds: 500),
+      onSpeed: task.setSpeed,
+    );
 
     await _downloader.download(
       url: task.url,
@@ -827,18 +828,7 @@ class DownloadQueue extends ChangeNotifier {
       expectType: task.type,
       onProgress: (int received, int total) {
         task.updateBytes(received, total > 0 ? total : null);
-
-        // 速度按 500ms 采样，直接用累计值算平均会让前半段数字虚高。
-        final int elapsed = stopwatch.elapsedMilliseconds;
-        if (elapsed - lastSampleMs >= 500) {
-          final double seconds = (elapsed - lastSampleMs) / 1000;
-          if (seconds > 0) {
-            // 走方法而不是直写 notifier：下载中途队列被 dispose 时这里还会被调用
-            task.setSpeed((received - lastSampleBytes) / seconds);
-          }
-          lastSampleMs = elapsed;
-          lastSampleBytes = received;
-        }
+        speed.sample(received);
         _pushNotificationProgress();
       },
     );
@@ -857,11 +847,13 @@ class DownloadQueue extends ChangeNotifier {
       p.join(StoragePaths.temp.path, '${task.id}.out'),
     );
 
-    // 分片回调只带分片数和累计字节，速度在这里自己采样。窗口取 1 秒：
-    // 分片动辄几 MB，并发 6 路下 500ms 内经常一片都没落盘，算出来会是一串 0。
-    final Stopwatch stopwatch = Stopwatch()..start();
-    int lastSampleMs = 0;
-    int lastSampleBytes = 0;
+    // 分片动辄几 MB，并发 6 路下 500ms 内经常一片都没落盘，
+    // 所以窗口取 1 秒；续传首帧只做基线，不算速度。
+    final _SpeedSampler speed = _SpeedSampler(
+      window: const Duration(seconds: 1),
+      onSpeed: task.setSpeed,
+      skipFirstFrame: true,
+    );
 
     final HlsDownloadResult result = await _hls.download(
       playlistUrl: task.url,
@@ -870,19 +862,12 @@ class DownloadQueue extends ChangeNotifier {
       headers: task.headers,
       userCancelToken: token,
       onProgress: (HlsProgress progress) {
-        task.updateSegments(progress.done, progress.total);
-        final int elapsed = stopwatch.elapsedMilliseconds;
-        if (elapsed - lastSampleMs >= 1000) {
-          final double seconds = (elapsed - lastSampleMs) / 1000;
-          if (seconds > 0) {
-            // 走方法而不是直写 notifier，队列 dispose 后回调仍会进来
-            task.setSpeed((progress.bytes - lastSampleBytes) / seconds);
-          }
-          lastSampleMs = elapsed;
-          lastSampleBytes = progress.bytes;
-        }
-        // HLS 按分片计进度，但通知栏只认字节；把累计字节落到 task 上供聚合。
-        task.receivedBytes = progress.bytes;
+        task.updateSegments(
+          progress.done,
+          progress.total,
+          bytes: progress.bytes,
+        );
+        speed.sample(progress.bytes);
         _pushNotificationProgress();
       },
     );
@@ -910,9 +895,11 @@ class DownloadQueue extends ChangeNotifier {
       p.join(StoragePaths.temp.path, '${task.id}.dash.audio.out'),
     );
 
-    final Stopwatch stopwatch = Stopwatch()..start();
-    int lastSampleMs = 0;
-    int lastSampleBytes = 0;
+    final _SpeedSampler speed = _SpeedSampler(
+      window: const Duration(seconds: 1),
+      onSpeed: task.setSpeed,
+      skipFirstFrame: true,
+    );
 
     final DashDownloadResult result = await _dash.download(
       manifestUrl: task.url,
@@ -922,17 +909,12 @@ class DownloadQueue extends ChangeNotifier {
       headers: task.headers,
       userCancelToken: token,
       onProgress: (DashProgress progress) {
-        task.updateSegments(progress.done, progress.total);
-        final int elapsed = stopwatch.elapsedMilliseconds;
-        if (elapsed - lastSampleMs >= 1000) {
-          final double seconds = (elapsed - lastSampleMs) / 1000;
-          if (seconds > 0) {
-            task.setSpeed((progress.bytes - lastSampleBytes) / seconds);
-          }
-          lastSampleMs = elapsed;
-          lastSampleBytes = progress.bytes;
-        }
-        task.receivedBytes = progress.bytes;
+        task.updateSegments(
+          progress.done,
+          progress.total,
+          bytes: progress.bytes,
+        );
+        speed.sample(progress.bytes);
         _pushNotificationProgress();
       },
     );
@@ -1064,5 +1046,40 @@ class DownloadQueue extends ChangeNotifier {
     }
     _tasks.clear();
     super.dispose();
+  }
+}
+
+/// 用累计字节做差算瞬时速度，不用「总量 / 总时间」——后者会把起步阶段
+/// 算得虚高。分片下载要 [skipFirstFrame]：续传首帧带的是旧分片字节，
+/// 从 0 开始算会冒出几 GB/s 的假速度。
+class _SpeedSampler {
+  _SpeedSampler({
+    required this.window,
+    required this.onSpeed,
+    this.skipFirstFrame = false,
+  });
+
+  final Duration window;
+  final void Function(double bytesPerSecond) onSpeed;
+  final bool skipFirstFrame;
+
+  final Stopwatch _stopwatch = Stopwatch()..start();
+  int _lastMs = 0;
+  int _lastBytes = 0;
+  late bool _first = skipFirstFrame;
+
+  void sample(int bytes) {
+    final int elapsed = _stopwatch.elapsedMilliseconds;
+    if (_first) {
+      _first = false;
+      _lastMs = elapsed;
+      _lastBytes = bytes;
+      return;
+    }
+    if (elapsed - _lastMs < window.inMilliseconds) return;
+    final double seconds = (elapsed - _lastMs) / 1000;
+    if (seconds > 0) onSpeed((bytes - _lastBytes) / seconds);
+    _lastMs = elapsed;
+    _lastBytes = bytes;
   }
 }

@@ -31,6 +31,7 @@ class DownloadTile extends ConsumerWidget {
       ]),
       builder: (BuildContext context, Widget? child) {
         final DownloadStatus status = task.status;
+        final String? sizeText = _sizeText(status);
         return Padding(
           padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
           child: Column(
@@ -70,16 +71,31 @@ class DownloadTile extends ConsumerWidget {
               Row(
                 children: <Widget>[
                   Expanded(
-                    child: Text(
-                      _statusText(status),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: status == DownloadStatus.failed
-                            ? scheme.error
-                            : scheme.onSurfaceVariant,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          _statusText(status),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: status == DownloadStatus.failed
+                                ? scheme.error
+                                : scheme.onSurfaceVariant,
+                          ),
+                        ),
+                        if (sizeText != null)
+                          Text(
+                            sizeText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: scheme.outline,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   if (status == DownloadStatus.running && task.speed.value > 0)
@@ -98,6 +114,28 @@ class DownloadTile extends ConsumerWidget {
         );
       },
     );
+  }
+
+  /// 下载中才显示字节进度。流媒体没有 Content-Length，
+  /// [DownloadTask.updateSegments] 按已完成分片的平均体积估了一个总量。
+  String? _sizeText(DownloadStatus status) {
+    if (status != DownloadStatus.running &&
+        status != DownloadStatus.waitingNetwork &&
+        status != DownloadStatus.paused) {
+      return null;
+    }
+    final int received = task.receivedBytes;
+    final int? total = task.totalBytes;
+    if (received <= 0 && (total == null || total <= 0)) return null;
+
+    final String done = FormatUtil.bytes(received);
+    if (task.isStream) {
+      final String all = total != null && total > 0
+          ? '约 ${FormatUtil.bytes(total)}'
+          : '未知大小';
+      return '已下载 $done / $all';
+    }
+    return '已下载 $done / ${FormatUtil.bytes(total)}';
   }
 
   String _statusText(DownloadStatus status) {

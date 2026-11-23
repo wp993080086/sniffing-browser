@@ -25,6 +25,16 @@ void main() {
       expect(task.progress.value, closeTo(206 / 430, 1e-9));
     });
 
+    test('带字节时按已完成分片估算总大小', () {
+      final DownloadTask task = streamTask();
+
+      task.updateSegments(5, 10, bytes: 1024);
+
+      expect(task.receivedBytes, 1024);
+      expect(task.totalBytes, 2048);
+      expect(task.progress.value, closeTo(0.5, 1e-9));
+    });
+
     test('总数为 0 时只更新已完成数，不清掉已有总数', () {
       final DownloadTask task = streamTask()..updateSegments(10, 100);
 
