@@ -118,9 +118,9 @@ class FileDownloader {
       }
     }
 
-    await _explain403(last, url, plans.last);
+    final String? hint403 = await _explain403(last, url, plans.last);
     throw DownloadException(
-      _describeError(last),
+      _describeError(last, hint403: hint403),
       url: url,
       cause: last,
       network: last != null && _isNetworkFailure(last),
@@ -285,9 +285,9 @@ class FileDownloader {
       }
     }
 
-    await _explain403(last, url, plans.last);
+    final String? hint403 = await _explain403(last, url, plans.last);
     throw DownloadException(
-      _describeError(last),
+      _describeError(last, hint403: hint403),
       url: url,
       cause: last,
       network: last != null && _isNetworkFailure(last),
@@ -421,12 +421,14 @@ class FileDownloader {
   /// 403 时把「实际发出去哪些头」记下来，再要一次响应体看拦截原因。
   ///
   /// Cookie 只打名字不打值：写进日志是隐患。
-  Future<void> _explain403(
+  /// 返回本次 403 的诊断结论。不能存实例字段：多条任务共用同一个
+  /// FileDownloader，后写先读会让错误文案张冠李戴。
+  Future<String?> _explain403(
     DioException? error,
     String url,
     Map<String, String> headers,
   ) async {
-    if (error?.response?.statusCode != 403) return;
+    if (error?.response?.statusCode != 403) return null;
 
     String referer = '(无)';
     String cookieNames = '(无)';
@@ -447,10 +449,13 @@ class FileDownloader {
 
     // 光看状态码分不清「WAF 按 IP 拦」和「客户端特征被拦」，两者的修法完全
     // 相反。Cloudflare 的拦截页里有 error code，值得再花一个请求拿回来。
-    await _probe403Body(url, headers);
+    return _probe403Body(url, headers);
   }
 
-  Future<void> _probe403Body(String url, Map<String, String> headers) async {
+  Future<String?> _probe403Body(
+    String url,
+    Map<String, String> headers,
+  ) async {
     try {
       final Response<String> probe = await _dio.get<String>(
         url,
@@ -466,7 +471,7 @@ class FileDownloader {
           ? '${body.substring(0, 240)}…'
           : body;
       final String? code = _cloudflareCode(body);
-      _last403Hint = switch (code) {
+      final String? hint = switch (code) {
         // 1010：浏览器特征校验没过（UA / 头对不上）。
         '1010' => '站点校验客户端特征未通过',
         // 1020：按 IP / ASN 的规则直接拒 —— 换网络环境才有用。
@@ -480,8 +485,10 @@ class FileDownloader {
             'cf-mitigated=${probe.headers.value('cf-mitigated') ?? '-'} '
             'cf-code=${code ?? '-'} body=$snippet',
       );
+      return hint;
     } catch (e) {
       logDebug('Download', '403 诊断请求失败 $url: $e');
+      return null;
     }
   }
 
@@ -492,9 +499,6 @@ class FileDownloader {
     ).firstMatch(body);
     return match?.group(1);
   }
-
-  /// 最近一次 403 的诊断结论，拼进给用户看的错误信息里。
-  String? _last403Hint;
 
   static String _cookieNames(String header) {
     final List<String> names = <String>[];
@@ -614,7 +618,7 @@ class FileDownloader {
     return raw.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  String _describeError(Object? error) {
+  String _describeError(Object? error, {String? hint403}) {
     if (error is DioException) {
       switch (error.type) {
         case DioExceptionType.connectionTimeout:
@@ -626,10 +630,10 @@ class FileDownloader {
           final int? code = error.response?.statusCode;
           if (code == 403) {
             // 补过浏览器头还是被拒，说明不是「少个请求头」这么简单：
-            // 把 403 诊断出的结论带上，用户才知道该换网络还是该反馈。
-            final String? hint = _last403Hint;
-            _last403Hint = null;
-            return hint == null ? '403 拒绝访问，站点拒绝了这次请求' : '403 拒绝访问（$hint）';
+            // 把本次 403 诊断出的结论带上，用户才知道该换网络还是该反馈。
+            return hint403 == null
+                ? '403 拒绝访问，站点拒绝了这次请求'
+                : '403 拒绝访问（$hint403）';
           }
           if (code == 404) return '404 资源不存在';
           return 'HTTP $code';
