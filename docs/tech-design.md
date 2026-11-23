@@ -25,7 +25,8 @@ Android MediaStore 导出、Android 原生 FFmpegKit 转码（TS→MP4 / 抽 MP3
 转换任务独立页面与持久化（`transcode_jobs.json`）、下载记录持久化
 （`download_tasks.json`，2026-11-12）。
 
-**未落地**：鸿蒙原生导出与 FFmpeg、单文件字节级续传、MPD 分片重组、鸿蒙平台工程。
+**未落地**：鸿蒙原生导出与 FFmpeg、鸿蒙平台工程。
+单文件字节级续传与 MPD 分片重组已在 2026-11-23 落地（见 5.3 / 5.8.1）。
 详见 `README.md`「未实现」。
 
 **范围变更（2026-11-12）**：用户在 Android USB 真机上跑，明确要求补齐下载完成后的
@@ -47,7 +48,7 @@ Android MediaStore 导出、Android 原生 FFmpegKit 转码（TS→MP4 / 抽 MP3
 | 分片级续传、多分片并发 | 支持 | 任务并发 3、分片并发 6；单文件按 Range 字节级续传 |
 | TS 转 MP4 | 支持（FFmpeg 无损 remux） | 桌面已实测；Android 走原生 FFmpegKit，待真机验证 |
 | 音频转 MP3 | 支持（FFmpeg 重编码，有损） | 桌面已实测；Android 走原生 FFmpegKit 的 libmp3lame，待真机验证 |
-| DASH（mpd）分片重组 | 不支持 | 不解析 MPD；仅嗅探到的完整 `.m4s` 分片可下载，并自动配对音视频合并，见 5.8 |
+| DASH（mpd）分片重组 | 支持（点播，非 DRM） | `MpdParser` 解析 SegmentTemplate / SegmentList / SegmentTimeline，分片并发下载后拼接，音轨走 `-c copy` 合并，见 5.8.1；直播与 DRM 明确拒绝 |
 | 导出到系统相册 / 音乐目录 | 支持 | 桌面纯 Dart 文件复制；Android MediaStore（`IS_PENDING`）；鸿蒙未实现 |
 | Widevine / FairPlay 等 DRM 内容 | 不支持 | — |
 | 签名参数保护的平台（YouTube 等） | 不支持 | B 站的 `.m4s` 是普通 HTTP 请求，属例外，见 5.8 |
@@ -1302,7 +1303,8 @@ pending → running → completed
 - 单文件下载按字节级续传：失败保留 `.part`，下次带 `Range: bytes=<offset>-`
   + `FileAccessMode.append` 接着写；服务端不认 Range（回 200 全量）时丢弃重下，
   详见 5.3.3
-- DASH 的 `.mpd` 任务直接抛「暂不支持 DASH 分片重组」；嗅探到的 `.m4s` 分片走 5.8 的配对合并
+- DASH 的 `.mpd` 任务走 5.8.1 的 MPD 分片重组；单独嗅探到的 `.m4s` 分片仍走 5.8 的配对合并
+- MPD 与 HLS 的文件名都加来源页标题：`manifest.mpd` → `manifest_页面名.mpd`，最终产物去掉扩展名换成 `mp4` / `m4a`
 
 #### 5.6.1 设置页：分片并发与代理（2026-11-20）
 
@@ -1466,6 +1468,23 @@ MP3 没有对应的手动入口，永远停在私有目录，界面上只写「�
 
 这样用户不需要离开列表就能发起操作，也仍有全局视图可查——两者分开负责。
 
+#### 5.7.1 Android TS→MP4 的音频重编回退（2026-11-23）
+
+桌面 `SystemFfmpegEngine` 早就有回退：`-c copy` 失败时改跑
+`-c:v copy -c:a aac -b:a 192k -movflags +faststart`，视频仍然直接复制。
+Android 首版 `TranscodeBridge.kt` 只跑一次 `-c copy`，遇到老式 MPEG-2 音频 / AC-3
+这类装不进 MP4 的音轨就直接把 ffmpeg 原文抛给用户。
+
+现在两端行为一致：
+
+- `runTsToMp4WithFallback` 先跑无损命令；失败且**不是取消**时清掉半截输出、
+  把进度推回 0，再跑一次只重编音频的命令；
+- 两次尝试之间用户点取消也能拦住：`cancelRequested` 标志补上 `activeSessionId`
+  在 session 切换间隙为 null 的窗口；
+- 回退成功时原生回包带 `strategy=audioReencoded`，Dart 侧只记日志，不改变
+  「完成」语义 —— UI 不需要为一次兼容性回退多出一种状态；
+- 两次都失败时把两段错误拼成一条中文结论，不再只显示最后一次的英文行。
+
 ### 5.8 DASH 音视频配对与合并
 
 #### 问题
@@ -1569,6 +1588,33 @@ ffprobe 只有 1 条 h264 流，抽音轨直接报 `Output file does not contain
 标记挑，选中的不一定是用户以为的那条。不加 `-ac 2`：实测 5.1 源 ffmpeg
 会自动降混到立体声，强行指定反而把单声道源也变成双声道、文件白白大一倍。
 
+#### 5.8.1 MPD 清单下载（2026-11-23）
+
+5.8 处理的是「页面已经把每条 `.m4s` 都请求出来了」的那种 DASH：嗅探器各自捕获，
+队列按文件名前缀配对。它解决不了另一种常见形态——页面只请求一份 `.mpd`，
+分片地址要靠清单里的模板算出来。现在这条路径也通了：
+
+| 文件 | 职责 |
+| --- | --- |
+| `data/dash/mpd_models.dart` | `MpdManifest` / `MpdPeriod` / `MpdAdaptationSet` / `MpdRepresentation`，以及继承用的 `MpdSegmentTemplate` / `MpdSegmentList` |
+| `data/dash/mpd_parser.dart` | 用 `xml` 包解析 MPD；处理命名空间、多层 `BaseURL` 与模板继承、ISO 8601 时长；`selectTracks` 按带宽挑最高码率视频轨 + 音轨 |
+| `data/dash/dash_downloader.dart` | 展开 `$Number$` / `$Number%03d$` / `$Time$` / `$RepresentationID$`，并发下载分片与 init 段，复用 `SegmentMerger` 拼接；音视频各出一个文件 |
+
+分片数来源两种：
+
+- `SegmentTimeline`：展开 `<S d="..." r="..."/>` 的重复，`$Time$` 用累加出的
+  timescale 时间点；`r=-1`（无界 live）直接拒绝；
+- `SegmentTemplate@duration` + `mediaPresentationDuration` / `Period@duration`：
+  `ceil(总时长 × timescale / duration)`。没有时长信息就明确报错，不猜。
+
+明确不支持并给出中文原因的三类：`SegmentBase` 单文件封装（需要按字节区间拼 moof 索引）、
+带 `<ContentProtection>` 的 DRM 流、没有固定分片数的直播流。上限 20000 分片，
+防止写错 duration 的 MPD 把内存打爆。
+
+音轨下载失败不会拖死视频：分片级 `.part` 保留，剩下的音频分片跳过，
+最终交付无声 mp4 并记日志；拼接成功后由队列排 `dashMerge`，复用 5.8 的合并命令
+（无 `-shortest`），完成后覆盖回同一个任务路径。临时分片目录在成功时删除。
+
 ---
 
 ### 5.9 站内视频解析（抖音）（2026-11-20 新增）
@@ -1642,6 +1688,28 @@ ffprobe 只有 1 条 h264 流，抽音轨直接报 `Output file does not contain
 
 页签切换器里它仍以卡片出现（否则用户没有回首页的入口），但没有关闭键，
 标题显示应用名。
+
+### 5.11 登录态管理（2026-11-23）
+
+先分清职责，避免做一个点了没用的「自动登录」开关：
+
+| 谁 | 负责什么 |
+| --- | --- |
+| 浏览器（本应用的 WebView） | 把网站写下的 Cookie 存进应用私有数据，重启后仍在；发请求时按域名带回去。下载器通过 `WebViewCookies.forUrl` 现取并注入，见 5.3 |
+| 网站（应用提供方） | 决定是否下发长期有效的免登录凭证。只发会话 Cookie 的站点，关掉页面就得重新登录，浏览器无法绕过；凭证绑设备 / 短生命周期也一样 |
+
+所以「上次登录、下次自动登录」成立的充分条件是：网站认这个 Cookie + WebView 没被清。
+本应用没有任何删除 Cookie 的启动逻辑，因此默认成立。
+
+设置页新增「登录态管理」入口，页内做三件事：
+
+- 输入站点地址，列出该地址生效的 Cookie 名字、域名、过期时间（**不显示 value**，
+  value 是登录凭证，只在下载时现取，绝不落界面 / 日志）；
+- 有明确未来过期时间的标成持久登录态（图标 + 时间），会话 Cookie 单独标注；
+- 清除该站 / 清除全部 Cookie，均带二次确认；清完下载会重新出现 403，这是预期行为。
+
+`CookieManager` 只在 Android 上接了；其余平台给出说明而不是抛平台异常。
+Windows 的嗅探本来就走 CDP，请求头自带 Cookie，也不需要这层。
 
 ---
 
@@ -2273,7 +2341,7 @@ A1 → A3 → A4 → A5 → A6 顺序执行完毕 —— 自写首页正常显�
 | 站点把 404 兜底成首页 | 请求不存在的 `.mp4` 会拿到 `200 + text/html` 的整页 HTML，扩展名不变、大小几十 KB，存下来就是“文件已损坏”。实测 `sagigames.cn` 的 `/_nuxt/videos/banner.bf78c42.mp4` 与首页 HTML 字节完全相同 | 三道防线：嗅探层按 MIME 否决（`text/html` 一律不算媒体）、下载层按内容校验（HTML/JSON/纯文本载荷拒收）、HLS 层校验 `#EXTM3U` 头。见 `media_validator.dart` |
 | 自动播放被拦 | Chromium 策略要求带声音的媒体必须由用户手势触发；内嵌 WebView 无手势上下文，同一页面在系统浏览器能播、在应用里不动 | 页面加载完成后注入兜底脚本：对 `video[autoplay]` 补 `muted` 再 `play()`，只作用于带 autoplay 的元素 |
 | DASH 分轨（无声视频） | B 站把画面和声音拆成两条 `xxx.m4s`，各自只有一条流。只下视频轨得到的是哑的 mp4，抽音轨会报 `Output file does not contain any stream` | 队列按文件名前缀自动配对，补下音频轨后 `-c copy` 合并；实测 4s 素材合并耗时 0.06s。见 5.8 |
-| 移动端分不清音视频轨 | `onLoadResource` 拿不到 MIME，`.m4s` 只能按视频轨处理，配对因此失效 | 降级为单轨下载（正常，无声），日志里写明「没找到配对的音频轨」；彻底解决要在端上补 MIME 或解析 MPD |
+| 移动端分不清音视频轨 | `onLoadResource` 拿不到 MIME，`.m4s` 只能按视频轨处理，配对因此失效 | 降级为单轨下载（正常，无声），日志里写明「没找到配对的音频轨」；若页面提供 MPD，改下清单即可由 5.8.1 解析出两条轨 |
 | 音轨残缺导致视频被截 | `-shortest` 按最短的一路截断，音轨不完整时会把视频砍掉一大截（实测 4s→2s） | 合并命令不加 `-shortest`；合并前探测两路时长，差异 >5% 记 warn 但不阻断 |
 | 对无声视频抽 MP3 失败 | ffmpeg 报 `Stream map '0:a:0' matches no streams.`，这行不含 error 字样，会被通用错误提取逻辑跳过，最后返回的是 `To ignore this, add a trailing '?' to the map.` | 引擎单独识别这类 stderr，抛 `TranscodeUnsupportedSource` 给中文结论；UI 侧用 `mergedAudio` 三态提前把已知无声的文件挡掉 |
 | ~~Android FFmpeg 未接入~~ | 桌面走系统 ffmpeg；Android 曾只有 MethodChannel 占位 | **已化解（2026-11-12）**：`TranscodeBridge.kt` + `ffmpeg-kit-full:8.1.9` AAR，三类转换均已接上；鸿蒙仍未接入，入口保持隐藏 |
@@ -2281,7 +2349,7 @@ A1 → A3 → A4 → A5 → A6 顺序执行完毕 —— 自写首页正常显�
 | ffmpeg-kit 上游退役 | 官方 `com.arthenica:ffmpeg-kit-*` 2025-04-01 从 Maven Central 移除，直接加依赖会解析失败 | 改用持续维护的 `dev.ffmpegkit-maintained` 等价构建（同包名 / 同 API / LGPL）；版本固定为 8.1.9，不用动态版本号 |
 | GPL 许可风险 | `ffmpeg_kit_flutter_new` 主包是 Full GPL，含 x264/x265，闭源自用工具不适合链接 | 选 LGPL-3.0 的非 `-gpl` 变体 `ffmpeg-kit-full`，不引入 GPL 编码器 |
 | AAR ABI 不全 | 维护版只发布 arm64-v8a / x86_64，Flutter 默认会打全 ABI，32 位设备装上后 native 库缺失 | `packaging.jniLibs.excludes` 剔掉 32 位目录（`ndk.abiFilters` 会被 flutter 覆盖，不生效）；`checkAvailable()` 加载失败返回 false 而非崩溃；32 位真机需自行编译 AAR |
-| Android 转封装失败无回退 | TS 里 AC-3 / MPEG-2 音频装不进 MP4，`-c copy` 会失败 | 桌面有「只重编音频」回退，Android 首版直接返回 ffmpeg 错误行；已知差异，后续按需补齐 |
+| ~~Android 转封装失败无回退~~ | TS 里 AC-3 / MPEG-2 音频装不进 MP4，`-c copy` 会失败 | **已化解（2026-11-23）**：`TranscodeBridge.kt` 失败后自动改跑「视频复制 + 音频 AAC 重编」，进度归零重来；两次都失败才报错，见 5.7.1 |
 | ~~任务队列未持久化~~ | `DownloadQueue` 曾只在内存里保存 `List<DownloadTask>` | **已化解**（2026-11-12）：`DownloadStore` 落 `download_tasks.json`，位置必须是私有 files 目录而非 cache，见 5.6 / 5.7 |
 | 多页签 + 视频列表页卡顿 | 后台页签挂起、媒体播放互斥、抽帧串行 | 2026-11-13 调优，见上；后台页签的 JS 定时器仍在跑（Android 没有单实例暂停 API），彻底停只能销毁 WebView |
 | 单文件不支持字节级续传 | `file_downloader.dart` 明确不支持 Range 续传 | 中断后需重新下载；HLS 只有分片级续传（`.part` 存在即跳过） |

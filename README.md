@@ -31,13 +31,16 @@
 | 单文件下载 | `.part` 临时文件 + rename，中断不污染目标文件；断流后按 `Range` 续传，失败保留 `.part` | 端到端测试 |
 | 后台保活 | Android 下载期间挂 `dataSync` 前台服务（常驻通知）+ `PARTIAL_WAKE_LOCK`，锁屏后 CPU 不休眠、传输与重试定时器照常跑 | 编译通过，待真机复验 |
 | HLS | master 选最高码率、并发分片、AES-128 解密、fMP4 init 段处理、二进制合并、分片级续传 | 端到端测试 |
+| DASH（MPD） | 解析 SegmentTemplate / SegmentList / SegmentTimeline，自动挑最高码率视频轨 + 音轨，init + `.m4s` 分片并发下载后拼接，音轨 `-c copy` 合成；清单文件名带来源页标题 | 单元测试 + 队列端到端测试；DRM / 直播明确拒绝 |
 | 转码（桌面） | 调用系统 ffmpeg：TS→MP4 无损转封装、音频→MP3 重编码，进度解析、取消 | 端到端测试 |
 | 日志与诊断 | 文件日志、全局错误捕获、通道计数器、诊断页 | Windows 实测 |
 | 导出 | 桌面纯 Dart 复制；Android MediaStore（MediaStore + `IS_PENDING`） | 桌面可用；Android 真机已验证 mp4 入库 |
 | 转码（Android） | 原生 `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`（LGPL）经 MethodChannel 桥接，完成后自动写进 MediaStore | 已实现，待真机复验 MP3 落库 |
 | 转换页与持久化 | 独立「转换」页（入口在下载页 AppBar，带进行中角标）；任务落盘 `transcode_jobs.json`，重启后 pending 续跑、running 标中断；已完成项可「打开」产物 | 单元测试覆盖 |
 | 产物打开 / 分享 | 下载项菜单「打开」全平台可用（Android 走 FileProvider 的 `content://`，无需先导出）；「分享」仅 Android，拉起系统分享面板 | 编译 + 单元测试覆盖，待真机 |
-| 设置页 | 顶栏齿轮进入：HLS 分片并发（1~12，默认 6）、HTTP/SOCKS5 代理（留空走环境变量） | 编译 + 单测，待真机 |
+| 设置页 | 顶栏齿轮进入：HLS / DASH 分片并发（1~12，默认 6）、HTTP/SOCKS5 代理（留空走环境变量）、站点规则、登录态管理 | 编译 + 单测，待真机 |
+| 登录态管理 | 按站点查看 WebView Cookie 的名称 / 域名 / 过期时间（不显示值），清除该站或全部 Cookie；页面内说明「自动登录由网站发长期凭证决定」 | 单测覆盖摘要判定，真机待验 |
+| Android 转码回退 | TS→MP4 的 `-c copy` 失败时自动改跑「视频复制 + 音频 AAC 重编」，两次都失败才报错 | Kotlin 编译通过，真机待验 |
 | 下载记录持久化 | `download_tasks.json`（私有 files 目录，不用 cache）；重启后历史还在，没下完的标「已中断，可重试」且不自动重跑 | 单元测试覆盖 |
 | 视频解析 | 首页「视频解析」入口：粘抖音分享链接，在**可见** WebView 里注入 hook，直接读页面自己拿到的 `play_addr`（完整 mp4 直链，支持 Range），一键入下载队列；12 秒无果自动改走分享页 SSR 数据，40 秒判失败 | 编译 + 单测覆盖，待真机 |
 | 常驻起始页 | 起始页是 pinned 页签：关不掉、不占 WebView 槽位、不计入页签数；在它上面输入地址会**新开页签**而不是就地跳转；关光网页面落回这里 | 单测覆盖 |
