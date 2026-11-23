@@ -151,6 +151,9 @@ class TranscodeQueue extends ChangeNotifier {
       if (job.sourcePath == sourcePath &&
           job.kind == kind &&
           !job.status.isFinished) {
+        // 复用已有任务，但新调用方的收尾回调也要登记，
+        // 否则第二次下载任务永远等不到合并结果。
+        if (onFinished != null) job.addOnFinished(onFinished);
         return job;
       }
     }
@@ -307,8 +310,8 @@ class TranscodeQueue extends ChangeNotifier {
       _isRunning = false;
       // 先把终态抛给上层（下载队列要靠它决定是否删掉伴随任务），
       // 再通知 UI、再排下一个。
-      final void Function(TranscodeStatus)? callback = job.onFinished;
-      if (callback != null) {
+      for (final void Function(TranscodeStatus status) callback
+          in job.finishedCallbacks) {
         try {
           callback(job.status);
         } catch (e) {

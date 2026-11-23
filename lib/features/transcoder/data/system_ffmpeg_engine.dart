@@ -226,8 +226,10 @@ class SystemFfmpegEngine extends TranscodeEngine {
       );
     }
 
-    // 有些站点的分片带少量损坏帧，ffmpeg 仍然产出了可播放文件，
-    // 但退出码非 0。文件存在且有内容就认为成功，避免用户白等一场。
+    // 这个检查只在退出码为 0 之后才走得到：_execute 对非 0 退出码直接抛
+    // _FfmpegFailure，TS 转封装据此触发「只重编音频」回退。少量坏帧但能播的
+    // 文件目前不会被放行 —— 要区分它和半截废文件得再跑一次 ffprobe，
+    // 代价大于收益，先把失败原因如实告诉用户。
     final File out = File(outputPath);
     if (!await out.exists() || await out.length() == 0) {
       throw StateError('转换没有产出文件');

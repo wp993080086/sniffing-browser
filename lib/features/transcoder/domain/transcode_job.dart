@@ -147,8 +147,10 @@ class TranscodeJob {
     this.sourceTaskId,
     this.displayName,
     this.replaceSource = false,
-    this.onFinished,
-  });
+    void Function(TranscodeStatus status)? onFinished,
+  }) : _onFinished = <void Function(TranscodeStatus status)>[
+          ?onFinished,
+        ];
 
   final String id;
   final String sourcePath;
@@ -168,7 +170,17 @@ class TranscodeJob {
 
   /// 结束（成功 / 失败 / 取消）时回调。队列在内部状态落定后调用，
   /// 让上层（下载队列）能跟着收尾，而不必去监听整个队列。
-  final void Function(TranscodeStatus status)? onFinished;
+  ///
+  /// 一个源文件可能对应多个上层任务（例如同一个视频轨被两次下载重试
+  /// 触发合并），所以允许追加，不能只留最后一次入队的回调。
+  final List<void Function(TranscodeStatus status)> _onFinished;
+
+  List<void Function(TranscodeStatus status)> get finishedCallbacks =>
+      List<void Function(TranscodeStatus status)>.unmodifiable(_onFinished);
+
+  void addOnFinished(void Function(TranscodeStatus status) callback) {
+    _onFinished.add(callback);
+  }
 
   /// 关联的下载任务，用于在下载列表里回显“已转换”。
   final String? sourceTaskId;

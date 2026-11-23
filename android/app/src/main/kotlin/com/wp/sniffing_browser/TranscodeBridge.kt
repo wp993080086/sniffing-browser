@@ -36,9 +36,12 @@ class TranscodeBridge(private val channel: MethodChannel) : MethodChannel.Method
             "isAvailable" -> result.success(checkAvailable())
             "startTranscode" -> start(call, result)
             "cancelTranscode" -> {
+                // 队列严格串行，jobId 只是 Dart 侧的契约占位；实际取消的是
+                // 当前唯一 session。两次尝试之间 activeSessionId 为空，此时
+                // 不调全局 cancel —— 那会误杀别的 FFmpegKit 会话，
+                // cancelRequested 已足够让第二次尝试不启动。
                 cancelRequested = true
-                val id = activeSessionId
-                if (id != null) FFmpegKit.cancel(id) else FFmpegKit.cancel()
+                activeSessionId?.let { FFmpegKit.cancel(it) }
                 result.success(null)
             }
             else -> result.notImplemented()
@@ -78,13 +81,27 @@ class TranscodeBridge(private val channel: MethodChannel) : MethodChannel.Method
         // progress / probe 都要跑在后台：MethodChannel 回调在主线程，
         // FFprobeKit.getMediaInformation 是同步阻塞的，放主线程会卡 UI。
         Thread {
-            val totalMs = probeDurationMs(input)
-            if (kind == "tsToMp4") {
-                runTsToMp4WithFallback(args, input, output, totalMs, result)
-            } else {
-                execute(args, output, totalMs) { payload ->
-                    activeSessionId = null
-                    mainHandler.post { result.success(payload) }
+            try {
+                // 取消可能落在 probe 之前，别为了一个已取消的任务白跑一遍 ffmpeg。
+                if (cancelRequested) {
+                    mainHandler.post { result.success(mapOf("status" to "canceled")) }
+                    return@Thread
+                }
+                val totalMs = probeDurationMs(input)
+                if (kind == "tsToMp4") {
+                    runTsToMp4WithFallback(args, input, output, totalMs, result)
+                } else {
+                    execute(args, output, totalMs) { payload ->
+                        activeSessionId = null
+                        mainHandler.post { result.success(payload) }
+                    }
+                }
+            } catch (t: Throwable) {
+                // 这里不兜住的话，Dart 的 await invokeMethod 会永远挂起，
+                // 整个转码队列跟着卡死。FFmpegKit 的加载/参数异常都可能走到这。
+                activeSessionId = null
+                mainHandler.post {
+                    result.success(failed("转码启动失败：${t.message ?: t.javaClass.simpleName}"))
                 }
             }
         }.start()
