@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/logging/app_log.dart';
 import '../file_downloader.dart';
+import '../segment_writer.dart';
 import 'aes_decryptor.dart';
 import 'm3u8_models.dart';
 import 'm3u8_parser.dart';
@@ -155,7 +156,7 @@ class HlsDownloader {
     // 并发数来自设置页。下限兜到 1：0 会让 Future.wait 空跑，整个任务卡死。
     final int limit = _segmentConcurrency?.call() ??
         AppConstants.maxConcurrentSegments;
-    final int concurrency = total < limit ? total : limit;
+    final int concurrency = limit < 1 ? 1 : (total < limit ? total : limit);
     await Future.wait(<Future<void>>[
       for (int i = 0; i < concurrency; i++) worker(),
     ]);
@@ -289,7 +290,7 @@ class HlsDownloader {
       );
     }
 
-    await partFile.writeAsBytes(plain, flush: true);
+    await writeSegmentAtomically(partFile, plain);
     return plain.length;
   }
 

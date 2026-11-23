@@ -8,6 +8,7 @@ import '../../../../core/constants/app_constants.dart';
 import '../../../../core/logging/app_log.dart';
 import '../file_downloader.dart';
 import '../hls/segment_merger.dart';
+import '../segment_writer.dart';
 import 'mpd_models.dart';
 import 'mpd_parser.dart';
 
@@ -17,7 +18,8 @@ class DashProgress {
   final int done;
   final int total;
 
-  /// 实际新写的字节数。命中 `.part` 的分片不计，用于算瞬时速度。
+  /// 当前已落盘的累计字节数，命中 `.part` 的分片也计入（估算总大小要用）。
+  /// 速度由队列以首帧为基线，不会因为续传瞬间多出旧分片而虚高。
   final int bytes;
 
   double get fraction => total <= 0 ? 0 : (done / total).clamp(0.0, 1.0);
@@ -132,6 +134,8 @@ class DashDownloader {
     final MpdSelectedTracks selected = _parser.selectTracks(manifest);
     final List<_DashTrackPlan> plans = <_DashTrackPlan>[];
     if (selected.video != null) plans.add(_planFor(selected.video!));
+    // 纯音轨清单没有视频轨，音轨就落在 index 0，不能把「音轨」写死成 1。
+    final int? audioTrack = selected.audio == null ? null : plans.length;
     if (selected.audio != null) plans.add(_planFor(selected.audio!));
 
     for (final _DashTrackPlan plan in plans) {
@@ -157,7 +161,7 @@ class DashDownloader {
           headers: headers,
           cancelToken: internal,
         );
-        await init.writeAsBytes(bytes, flush: true);
+        await writeSegmentAtomically(init, bytes);
       }
       initFiles.add(init);
     }
@@ -184,7 +188,9 @@ class DashDownloader {
         if (next >= total) return;
         final _SegmentJob job = jobs[next++];
         // 音轨出错就跳过剩下的音频分片：无声总比整个视频下不成好。
-        if (job.track == 1 && audioFailed) continue;
+        if (audioTrack != null && job.track == audioTrack && audioFailed) {
+          continue;
+        }
 
         try {
           final int written = await _prepareSegment(
@@ -204,9 +210,15 @@ class DashDownloader {
             videoError ??= e;
             return;
           }
-          if (job.track == 1) {
+          if (audioTrack != null && job.track == audioTrack) {
             audioFailed = true;
             audioError ??= e;
+            if (selected.video == null) {
+              // 纯音轨流没有视频可退，音轨坏了就是整个任务失败。
+              videoError ??= e;
+              if (!internal.isCancelled) internal.cancel('audio failed');
+              return;
+            }
             logWarn(
               'Download',
               'DASH 音轨分片 ${job.index + 1} 失败，将只交付视频轨: $e',
@@ -224,7 +236,8 @@ class DashDownloader {
 
     final int limit =
         _segmentConcurrency?.call() ?? AppConstants.maxConcurrentSegments;
-    final int concurrency = total < limit ? total : limit;
+    // 下限兜到 1：0 会让 Future.wait 空跑，整个任务卡死。
+    final int concurrency = limit < 1 ? 1 : (total < limit ? total : limit);
     await Future.wait<void>(
       <Future<void>>[for (int i = 0; i < concurrency; i++) worker()],
     );
@@ -234,7 +247,8 @@ class DashDownloader {
       throw DownloadException('已取消');
     }
 
-    // 3. 两条轨各自拼接。视频是主产物，失败就是整个任务失败。
+    // 3. 主轨拼接：有视频时是视频，纯音轨清单时就是音轨本身。
+    //    失败就是整个任务失败。
     await SegmentMerger.merge(
       segments: _parts(workDir, 0, plans[0].segmentUrls.length),
       output: output,
@@ -265,7 +279,8 @@ class DashDownloader {
     try {
       await workDir.delete(recursive: true);
     } catch (_) {
-      // 清理失败不影响结果，下次同 id 任务会复用已有 .part
+      // 清理失败不影响交付：下一次下载会用新 id 建目录，
+      // 这批残留交给存储管理页清理即可。
     }
 
     return DashDownloadResult(
@@ -396,7 +411,8 @@ class DashDownloader {
     ];
   }
 
-  /// 命中已有分片就跳过，这是任务级重试能"接着下"的关键。
+  /// 命中已有分片就跳过，返回它已落盘的字节数供总大小估算。
+  /// 速度由调用方用首帧做基线，不会因为续传瞬间多出一批旧分片而虚高。
   Future<int> _prepareSegment({
     required _SegmentJob job,
     required Directory workDir,
@@ -406,13 +422,16 @@ class DashDownloader {
     final File part = File(
       p.join(workDir.path, 't${job.track}', 'seg_${job.index}.part'),
     );
-    if (await part.exists() && await part.length() > 0) return 0;
+    if (await part.exists()) {
+      final int cached = await part.length();
+      if (cached > 0) return cached;
+    }
     final List<int> bytes = await _downloader.fetchBytes(
       url: job.uri.toString(),
       headers: headers,
       cancelToken: token,
     );
-    await part.writeAsBytes(bytes, flush: true);
+    await writeSegmentAtomically(part, bytes);
     return bytes.length;
   }
 }
