@@ -1,5 +1,6 @@
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../logging/app_log.dart';
 import 'platform_info.dart';
 
 /// Cookie 的展示用摘要。**不保存 value** —— 那是登录凭证，
@@ -58,9 +59,11 @@ class WebViewCookies {
       );
       if (cookies.isEmpty) return null;
       return cookies.map((Cookie c) => '${c.name}=${c.value}').join('; ');
-    } catch (_) {
+    } catch (e) {
       // 取不到就当作没有，让下载按原样发；把异常抛出去只会让用户看到
-      // 一个与真实原因无关的报错。
+      // 一个与真实原因无关的报错。但必须留日志：否则后续 403 时
+      // 根本看不出是 Cookie 没取到还是站点真的拒绝。
+      logWarn('Cookie', '按 URL 读取 Cookie 失败 $url: $e');
       return null;
     }
   }
@@ -73,7 +76,8 @@ class WebViewCookies {
         url: WebUri(url),
       );
       return cookies.map(_summarize).toList();
-    } catch (_) {
+    } catch (e) {
+      logWarn('Cookie', '读取站点 Cookie 摘要失败 $url: $e');
       return const <CookieSummary>[];
     }
   }
@@ -84,7 +88,8 @@ class WebViewCookies {
     try {
       final List<Cookie> cookies = await CookieManager.instance().getAllCookies();
       return cookies.map(_summarize).toList();
-    } catch (_) {
+    } catch (e) {
+      logWarn('Cookie', '读取全部 Cookie 失败: $e');
       return const <CookieSummary>[];
     }
   }
@@ -94,7 +99,8 @@ class WebViewCookies {
     if (!isSupported) return false;
     try {
       return await CookieManager.instance().deleteCookies(url: WebUri(url));
-    } catch (_) {
+    } catch (e) {
+      logWarn('Cookie', '清除站点 Cookie 失败 $url: $e');
       return false;
     }
   }
@@ -104,7 +110,8 @@ class WebViewCookies {
     if (!isSupported) return false;
     try {
       return await CookieManager.instance().deleteAllCookies();
-    } catch (_) {
+    } catch (e) {
+      logWarn('Cookie', '清除全部 Cookie 失败: $e');
       return false;
     }
   }
