@@ -239,7 +239,13 @@ class DownloadQueue extends ChangeNotifier {
     double speed = 0;
     int count = 0;
     for (final DownloadTask task in _tasks) {
-      if (task.status != DownloadStatus.running) continue;
+      // 等待网络 / 暂停也是「还在队列里」的任务：只统计 running 的话，
+      // 断网重试期间通知栏会显示 0 项，用户以为任务全没了。
+      if (task.status != DownloadStatus.running &&
+          task.status != DownloadStatus.waitingNetwork &&
+          task.status != DownloadStatus.paused) {
+        continue;
+      }
       count++;
       done += task.receivedBytes;
       total += task.totalBytes ?? 0;
@@ -465,6 +471,7 @@ class DownloadQueue extends ChangeNotifier {
     task.speed.value = 0;
     // 重来一次可能配到上次还没出现的音频轨，结论要重新得出。
     task.mergedAudio = null;
+    _pairRejected.remove(task.id);
     task.setStatus(DownloadStatus.pending);
     _safeNotify();
     _schedulePersist();
