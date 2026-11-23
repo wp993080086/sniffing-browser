@@ -46,9 +46,13 @@ class ResourceTile extends ConsumerWidget {
         onPressed: () {
           // 把整页资源一起传下去：DASH 站点的画面和声音是两条独立的 m4s，
           // 只下视频轨得到的是哑的。队列会自己配对、自己合并。
-          final DownloadTask task = ref
-              .read(downloadQueueProvider)
-              .enqueue(item, pool: ref.read(snifferProvider).items);
+          final DownloadTask task = ref.read(downloadQueueProvider).enqueue(
+            item,
+            pool: ref.read(snifferProvider).items,
+            // 标题要到 handleLoadStop 之后才拿得到，嗅探那一刻还是上一页的；
+            // 而换页会清空嗅探列表，所以当前页就是这条资源的来源页。
+            pageTitle: ref.read(tabManagerProvider).title,
+          );
           final String hint = task.pairedTaskId != null
               ? '（已配对音轨，完成后自动合并）'
               : '';

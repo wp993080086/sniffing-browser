@@ -61,6 +61,25 @@ void main() {
     expect(items, isNot(contains('打开')));
   });
 
+  testWidgets('下载中的任务有「暂停」和「取消」，没有「继续」', (WidgetTester tester) async {
+    final DownloadTask task = _task(completed: false)
+      ..setStatus(DownloadStatus.running);
+    final List<String> items = await _menuItems(tester, task);
+
+    expect(items, contains('暂停'));
+    expect(items, contains('取消'));
+    expect(items, isNot(contains('继续')));
+  });
+
+  testWidgets('暂停中的任务有「继续」，没有「取消」', (WidgetTester tester) async {
+    final DownloadTask task = _task(completed: false)
+      ..setStatus(DownloadStatus.paused);
+    final List<String> items = await _menuItems(tester, task);
+
+    expect(items, contains('继续'));
+    expect(items, isNot(contains('取消')));
+  });
+
   testWidgets('HLS 任务同时显示分片进度和百分比', (WidgetTester tester) async {
     final DownloadTask task = DownloadTask(
       id: 'h1',

@@ -14,6 +14,7 @@ import '../../downloader/data/download_queue.dart';
 import '../../sniffer/domain/media_item.dart';
 import '../../sniffer/domain/media_type.dart';
 import '../data/douyin_hook.dart';
+import '../domain/resolved_batch.dart';
 import '../domain/resolved_video.dart';
 
 enum _Stage { input, loading, done, failed }
@@ -48,7 +49,12 @@ class _VideoResolverPageState extends ConsumerState<VideoResolverPage> {
   String? _shareTried;
 
   String _error = '';
-  ResolvedVideo? _result;
+  final ResolvedBatch _batch = ResolvedBatch();
+
+  /// 首条命中后再等这么久收集同批视频，到点才切到结果页。抖音的主页接口
+  /// 一次会吐十几条，命中就切的话后面的会丢。
+  static const Duration _collectWindow = Duration(seconds: 2);
+  Timer? _collectTimer;
 
   /// 整页兜底时长。抖音的接口正常几百毫秒就回来，40 秒还没动静基本是没戏了。
   static const Duration _totalTimeout = Duration(seconds: 40);
@@ -67,6 +73,7 @@ class _VideoResolverPageState extends ConsumerState<VideoResolverPage> {
   void dispose() {
     _timeout?.cancel();
     _shareFallback?.cancel();
+    _collectTimer?.cancel();
     _input.dispose();
     _focus.dispose();
     super.dispose();
@@ -103,10 +110,10 @@ class _VideoResolverPageState extends ConsumerState<VideoResolverPage> {
 
     _focus.unfocus();
     logInfo('Resolver', '开始解析: $url');
+    _batch.clear();
     setState(() {
       _stage = _Stage.loading;
       _targetUrl = url;
-      _result = null;
       _error = '';
       _shareTried = null;
     });
@@ -129,7 +136,7 @@ class _VideoResolverPageState extends ConsumerState<VideoResolverPage> {
     // 详情接口要登录时，分享页的内联数据常常还能拿到。没别的路可走时才换，
     // 免得把本来正常的流程打断。
     _shareFallback = Timer(_shareAfter, () {
-      if (!mounted || _stage != _Stage.loading || _result != null) return;
+      if (!mounted || _stage != _Stage.loading || !_batch.isEmpty) return;
       final String share = DouyinHook.shareUrl(id);
       if (_shareTried == share) return;
       _shareTried = share;
@@ -154,19 +161,26 @@ class _VideoResolverPageState extends ConsumerState<VideoResolverPage> {
 
     final ResolvedVideo video = ResolvedVideo.fromJson(json);
     if (!video.isUsable) return;
+    if (!_batch.add(video)) return;
 
-    _timeout?.cancel();
-    _shareFallback?.cancel();
-    setState(() {
-      _result = video;
-      _stage = _Stage.done;
-    });
-    logInfo('Resolver', '解析成功: ${video.displayName}（${video.url}）');
+    // 第一条命中：停掉整页超时和分享页降级（已经有结果了），开一个短窗口
+    // 收集同批的其他视频。窗口到点才切 done，否则主页的十几条会丢。
+    if (_collectTimer == null) {
+      _timeout?.cancel();
+      _shareFallback?.cancel();
+      _collectTimer = Timer(_collectWindow, () {
+        if (!mounted || _stage != _Stage.loading) return;
+        setState(() => _stage = _Stage.done);
+      });
+    }
+    logInfo('Resolver', '解析命中: ${video.displayName}（共 ${_batch.videos.length} 条）');
   }
 
   void _fail(String message) {
     _timeout?.cancel();
     _shareFallback?.cancel();
+    _collectTimer?.cancel();
+    _collectTimer = null;
     setState(() {
       _stage = _Stage.failed;
       _error = message;
@@ -177,38 +191,42 @@ class _VideoResolverPageState extends ConsumerState<VideoResolverPage> {
   void _reset() {
     _timeout?.cancel();
     _shareFallback?.cancel();
+    _collectTimer?.cancel();
+    _collectTimer = null;
     _web = null;
+    _batch.clear();
     setState(() {
       _stage = _Stage.input;
       _targetUrl = null;
       _shareTried = null;
-      _result = null;
       _error = '';
     });
   }
 
   void _download() {
-    final ResolvedVideo? video = _result;
-    if (video == null) return;
+    final List<ResolvedVideo> videos = _batch.selected;
+    if (videos.isEmpty) return;
 
     final DownloadQueue queue = ref.read(downloadQueueProvider);
-    queue.enqueue(
-      MediaItem(
-        id: HashUtil.md5Short(video.url),
-        url: video.url,
-        type: MediaType.video,
-        firstSeenAt: DateTime.now(),
-        // 直链是抖音 CDN 的，Referer 按站点要求补上；缺了它部分节点会 403。
-        pageUrl: 'https://www.douyin.com/',
-        fileName: video.fileName,
-        contentLength: video.sizeBytes > 0 ? video.sizeBytes : null,
-        mimeType: 'video/mp4',
-        requestHeaders: const <String, String>{
-          'Referer': 'https://www.douyin.com/',
-        },
-        label: '抖音',
-      ),
-    );
+    for (final ResolvedVideo video in videos) {
+      queue.enqueue(
+        MediaItem(
+          id: HashUtil.md5Short(video.url),
+          url: video.url,
+          type: MediaType.video,
+          firstSeenAt: DateTime.now(),
+          // 直链是抖音 CDN 的，Referer 按站点要求补上；缺了它部分节点会 403。
+          pageUrl: 'https://www.douyin.com/',
+          fileName: video.fileName,
+          contentLength: video.sizeBytes > 0 ? video.sizeBytes : null,
+          mimeType: 'video/mp4',
+          requestHeaders: const <String, String>{
+            'Referer': 'https://www.douyin.com/',
+          },
+          label: '抖音',
+        ),
+      );
+    }
 
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
@@ -216,7 +234,11 @@ class _VideoResolverPageState extends ConsumerState<VideoResolverPage> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text('已加入下载队列：${video.displayName}'),
+          content: Text(
+            videos.length == 1
+                ? '已加入下载队列：${videos.first.displayName}'
+                : '已加入下载队列：${videos.length} 个视频',
+          ),
           duration: const Duration(seconds: 3),
         ),
       );
@@ -312,7 +334,7 @@ class _VideoResolverPageState extends ConsumerState<VideoResolverPage> {
       case _Stage.loading:
         return _loadingView();
       case _Stage.done:
-        return _resultView(_result!);
+        return _resultView();
       case _Stage.failed:
         return _failedView();
     }
@@ -461,7 +483,15 @@ class _VideoResolverPageState extends ConsumerState<VideoResolverPage> {
     );
   }
 
-  Widget _resultView(ResolvedVideo video) {
+  Widget _resultView() {
+    final List<ResolvedVideo> videos = _batch.videos;
+    if (videos.isEmpty) return _failedView();
+    // 单条保持原来的大卡片：用户粘的就是一个视频，不该多看一层勾选。
+    if (videos.length == 1) return _singleResultView(videos.first);
+    return _multiResultView(videos);
+  }
+
+  Widget _singleResultView(ResolvedVideo video) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
@@ -506,6 +536,75 @@ class _VideoResolverPageState extends ConsumerState<VideoResolverPage> {
         TextButton(
           onPressed: _reset,
           child: const Text('换个链接', style: TextStyle(fontSize: 13)),
+        ),
+      ],
+    );
+  }
+
+  Widget _multiResultView(List<ResolvedVideo> videos) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final int selected = _batch.selected.length;
+    return Column(
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Checkbox(
+              value: _batch.isSelectedAll,
+              // 全选实际上不切状态，只把勾选/取消交给每一行处理。
+              onChanged: (bool? value) =>
+                  setState(() => _batch.selectAll(value ?? false)),
+            ),
+            Text(
+              '全选 · 已选 $selected / ${videos.length}',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+        Expanded(
+          child: ListView.separated(
+            itemCount: videos.length,
+            separatorBuilder: (BuildContext context, int index) =>
+                const Divider(height: 1),
+            itemBuilder: (BuildContext context, int index) {
+              final ResolvedVideo video = videos[index];
+              return CheckboxListTile(
+                value: _batch.isSelected(video),
+                onChanged: (_) => setState(() => _batch.toggle(video)),
+                title: Text(
+                  video.displayName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13),
+                ),
+                subtitle: video.subtitle.isEmpty
+                    ? null
+                    : Text(
+                        video.subtitle,
+                        style: TextStyle(fontSize: 11, color: scheme.outline),
+                      ),
+              );
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          child: Column(
+            children: <Widget>[
+              FilledButton.icon(
+                onPressed: selected > 0 ? _download : null,
+                icon: const Icon(Icons.download, size: 18),
+                label: Text(
+                  selected > 0 ? '下载选中的 $selected 个' : '请先选择视频',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                style: FilledButton.styleFrom(minimumSize: const Size(0, 46)),
+              ),
+              TextButton(
+                onPressed: _reset,
+                child: const Text('换个链接', style: TextStyle(fontSize: 13)),
+              ),
+            ],
+          ),
         ),
       ],
     );

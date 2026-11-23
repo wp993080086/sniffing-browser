@@ -6,6 +6,7 @@ import '../../transcoder/presentation/transcode_page.dart';
 import '../data/download_queue.dart';
 import '../domain/download_task.dart';
 import 'download_tile.dart';
+import 'library_page.dart';
 
 class DownloadPage extends ConsumerWidget {
   const DownloadPage({super.key});
@@ -20,6 +21,16 @@ class DownloadPage extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('下载', style: TextStyle(fontSize: 17)),
         actions: <Widget>[
+          // 下载库只看已落盘的产物，和这个「任务列表」是两个视角。
+          IconButton(
+            tooltip: '下载库',
+            icon: const Icon(Icons.folder_open_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => const LibraryPage(),
+              ),
+            ),
+          ),
           // 转换任务独立成页：它和下载记录解耦，移除下载记录后仍能在这里看到。
           Consumer(
             builder: (BuildContext context, WidgetRef ref, Widget? child) {

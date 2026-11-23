@@ -215,8 +215,12 @@ class _Menu extends ConsumerWidget {
       itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
         if (task.status == DownloadStatus.running ||
             task.status == DownloadStatus.waitingNetwork ||
-            task.status == DownloadStatus.pending)
+            task.status == DownloadStatus.pending) ...<PopupMenuEntry<String>>[
+          const PopupMenuItem<String>(value: 'pause', child: Text('暂停')),
           const PopupMenuItem<String>(value: 'cancel', child: Text('取消')),
+        ],
+        if (task.status == DownloadStatus.paused)
+          const PopupMenuItem<String>(value: 'resume', child: Text('继续')),
         if (task.status.canRetry)
           const PopupMenuItem<String>(value: 'retry', child: Text('重试')),
         if (canOpen)
@@ -285,6 +289,10 @@ class _Menu extends ConsumerWidget {
         }
 
         switch (value) {
+          case 'pause':
+            ref.read(downloadQueueProvider).pause(task.id);
+          case 'resume':
+            ref.read(downloadQueueProvider).resume(task.id);
           case 'cancel':
             ref.read(downloadQueueProvider).cancel(task.id);
           case 'retry':

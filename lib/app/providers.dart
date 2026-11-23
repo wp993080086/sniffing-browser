@@ -73,6 +73,7 @@ final ChangeNotifierProvider<DownloadQueue> downloadQueueProvider =
           transcoder: ref.watch(transcodeQueueProvider),
           poolSupplier: () => ref.read(snifferProvider).items,
           segmentConcurrency: () => settings.segmentConcurrency,
+          siteRules: () => settings.siteRules,
           store: DownloadStore(),
         );
       },

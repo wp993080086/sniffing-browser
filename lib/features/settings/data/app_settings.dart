@@ -7,6 +7,7 @@ import '../../../core/logging/app_log.dart';
 import '../../../core/platform/proxy_rule.dart';
 import '../../../core/platform/storage_paths.dart';
 import '../../../core/utils/json_file.dart';
+import 'site_rule.dart';
 
 /// 应用设置。
 ///
@@ -35,9 +36,13 @@ class AppSettings extends ChangeNotifier {
 
   int _segmentConcurrency = defaultSegmentConcurrency;
   String _proxy = '';
+  List<SiteRule> _siteRules = <SiteRule>[];
   bool _loaded = false;
 
   int get segmentConcurrency => _segmentConcurrency;
+
+  /// 站点规则。按域名覆盖下载请求头，绝大多数站点不需要配。
+  List<SiteRule> get siteRules => List<SiteRule>.unmodifiable(_siteRules);
 
   /// 手动代理，形如 `127.0.0.1:7890`。空表示不手动设。
   String get proxy => _proxy;
@@ -65,6 +70,14 @@ class AppSettings extends ChangeNotifier {
       }
       final Object? proxy = raw['proxy'];
       if (proxy is String) _proxy = proxy.trim();
+      final Object? rules = raw['siteRules'];
+      if (rules is List) {
+        _siteRules = rules
+            .whereType<Map<String, Object?>>()
+            .map(SiteRule.fromJson)
+            .where((SiteRule rule) => rule.isValid)
+            .toList();
+      }
     }
 
     final String effective = proxyRule.proxy;
@@ -98,11 +111,29 @@ class AppSettings extends ChangeNotifier {
     await _save();
   }
 
+  Future<void> setSiteRules(List<SiteRule> rules) async {
+    _siteRules = rules
+        .where((SiteRule rule) => rule.isValid)
+        .map(
+          (SiteRule rule) => SiteRule(
+            domain: rule.domain.trim().toLowerCase(),
+            userAgent: rule.userAgent.trim(),
+            referer: rule.referer.trim(),
+            headers: Map<String, String>.from(rule.headers),
+          ),
+        )
+        .toList();
+    logInfo('Settings', '站点规则改为 ${_siteRules.length} 条');
+    notifyListeners();
+    await _save();
+  }
+
   Future<void> _save() async {
     await JsonFile.write(file, <String, Object?>{
       'version': 1,
       'segmentConcurrency': _segmentConcurrency,
       'proxy': _proxy,
+      'siteRules': _siteRules.map((SiteRule r) => r.toJson()).toList(),
     }, 'Settings');
   }
 }

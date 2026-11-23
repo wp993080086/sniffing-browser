@@ -20,8 +20,9 @@ class MainActivity : FlutterActivity() {
         MethodChannel(messenger, THUMBNAILER_CHANNEL)
             .setMethodCallHandler(ThumbnailBridge())
 
-        MethodChannel(messenger, DOWNLOAD_SERVICE_CHANNEL)
-            .setMethodCallHandler(DownloadServiceBridge(this))
+        val downloadChannel = MethodChannel(messenger, DOWNLOAD_SERVICE_CHANNEL)
+        DownloadServiceBridge.bind(downloadChannel)
+        downloadChannel.setMethodCallHandler(DownloadServiceBridge(this, downloadChannel))
     }
 
     private companion object {

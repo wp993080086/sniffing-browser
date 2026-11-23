@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../data/app_settings.dart';
+import 'site_rules_page.dart';
 
 /// 设置页。入口在顶栏第二层的齿轮。
 ///
@@ -44,6 +45,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: <Widget>[
+          _SectionTitle('网络'),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.rule_outlined, size: 20),
+            title: const Text('站点规则', style: TextStyle(fontSize: 13)),
+            subtitle: Text(
+              '${settings.siteRules.length} 条 · 只有自动请求头搞不定的站点才需要',
+              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+            ),
+            trailing: const Icon(Icons.chevron_right, size: 18),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => const SiteRulesPage(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           _SectionTitle('下载'),
           Row(
             children: <Widget>[

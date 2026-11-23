@@ -11,6 +11,7 @@ import '../../../core/platform/download_foreground_service.dart';
 import '../../../core/platform/media_exporter.dart';
 import '../../../core/platform/storage_paths.dart';
 import '../../../core/utils/hash_util.dart';
+import '../../settings/data/site_rule.dart';
 import '../../sniffer/domain/media_item.dart';
 import '../../sniffer/domain/media_type.dart';
 import '../../transcoder/data/transcode_queue.dart';
@@ -38,11 +39,13 @@ class DownloadQueue extends ChangeNotifier {
     List<MediaItem> Function()? poolSupplier,
     DownloadStore? store,
     int Function()? segmentConcurrency,
+    List<SiteRule> Function()? siteRules,
     List<Duration> networkWaits = defaultNetworkWaits,
   }) : _downloader = downloader ?? FileDownloader(),
        _transcoder = transcoder,
        _poolSupplier = poolSupplier,
        _store = store,
+       _siteRules = siteRules,
        _networkWaits = networkWaits {
     // HLS 缺省复用同一个 downloader：Cookie / 超时 / 重试策略必须和单文件
     // 一致，否则会出现「playlist 拿得到、分片 403」这种难查的差异。
@@ -52,6 +55,12 @@ class DownloadQueue extends ChangeNotifier {
           downloader: _downloader,
           segmentConcurrency: segmentConcurrency,
         );
+    // 通知栏按钮是全局操作，反调这里；platform 层不持有队列引用。
+    DownloadForegroundService.setActionHandler(
+      onPauseAll: pauseAll,
+      onResumeAll: resumeAll,
+      onCancelAll: cancelAll,
+    );
   }
 
   final FileDownloader _downloader;
@@ -84,6 +93,9 @@ class DownloadQueue extends ChangeNotifier {
   /// 真正开始下载时再查一次，能覆盖这种时序。
   final List<MediaItem> Function()? _poolSupplier;
 
+  /// 站点规则现取：设置页改完对下一个新任务立刻生效，不重建队列。
+  final List<SiteRule> Function()? _siteRules;
+
   final List<DownloadTask> _tasks = <DownloadTask>[];
   final Map<String, CancelToken> _tokens = <String, CancelToken>{};
 
@@ -97,6 +109,11 @@ class DownloadQueue extends ChangeNotifier {
   bool _disposed = false;
   bool _restored = false;
   bool _persistScheduled = false;
+
+  /// 被用户暂停的任务 id。token 取消时靠它区分「暂停」和「取消」，
+  /// 否则 _start 的 catch 会把暂停也标成已取消。
+  final Set<String> _pausedIds = <String>{};
+  DateTime? _lastNotificationPush;
 
   List<DownloadTask> get tasks => List<DownloadTask>.unmodifiable(_tasks);
 
@@ -114,6 +131,119 @@ class DownloadQueue extends ChangeNotifier {
       .length;
 
   bool get hasRunning => _runningCount > 0;
+
+  bool get hasPaused => _tasks.any(
+    (DownloadTask t) => t.status == DownloadStatus.paused,
+  );
+
+  /// 通知栏的全局暂停。运行中/等网络的中断请求，等待中的直接改状态；
+  /// 全部落到 paused，点继续后从 .part 断点续传。
+  void pauseAll() {
+    final List<DownloadTask> targets = _tasks
+        .where(
+          (DownloadTask t) =>
+              t.status == DownloadStatus.running ||
+              t.status == DownloadStatus.waitingNetwork ||
+              t.status == DownloadStatus.pending,
+        )
+        .toList();
+    if (targets.isEmpty) return;
+
+    for (final DownloadTask task in targets) {
+      _pausedIds.add(task.id);
+      task.setStatus(DownloadStatus.paused);
+      task.speed.value = 0;
+      _tokens[task.id]?.cancel('pause');
+    }
+    _safeNotify();
+    _schedulePersist();
+    _pushNotificationProgress(force: true);
+  }
+
+  /// 通知栏的全局继续。paused 退回 pending 重新调度，进度不清零 —— 单文件靠
+  /// 未删的 .part 续传，HLS 靠同一 workDir 里已下的分片。
+  void resumeAll() {
+    bool changed = false;
+    for (final DownloadTask task in _tasks) {
+      if (task.status != DownloadStatus.paused) continue;
+      _pausedIds.remove(task.id);
+      task.setStatus(DownloadStatus.pending);
+      changed = true;
+    }
+    if (!changed) return;
+    _safeNotify();
+    _schedulePersist();
+    _pump();
+  }
+
+  /// 通知栏的「取消全部」。和 [pauseAll] 的区别是不保留断点标记。
+  void cancelAll() {
+    final List<DownloadTask> targets = _tasks
+        .where(
+          (DownloadTask t) =>
+              t.status != DownloadStatus.completed &&
+              t.status != DownloadStatus.canceled,
+        )
+        .toList();
+    if (targets.isEmpty) return;
+
+    for (final DownloadTask task in targets) {
+      _pausedIds.remove(task.id);
+      if (task.status.isRunningOrWaiting) {
+        _tokens[task.id]?.cancel('user');
+      } else {
+        task.setStatus(DownloadStatus.canceled);
+      }
+    }
+    _safeNotify();
+    _schedulePersist();
+  }
+
+  /// token 被取消后任务该落在哪个状态。暂停走 paused，其余走 canceled。
+  ///
+  /// [token] 用于挡竞态：暂停后立刻点继续会起一个新 token，旧取消的 catch
+  /// 晚到时不能把新状态覆盖掉。
+  void _settleCancel(DownloadTask task, CancelToken token) {
+    if (!identical(_tokens[task.id], token)) return;
+    if (_pausedIds.remove(task.id)) {
+      task.setStatus(DownloadStatus.paused);
+    } else {
+      task.setStatus(DownloadStatus.canceled);
+    }
+  }
+
+  /// 把聚合进度推给通知栏。字节进度不触发 notifyListeners，必须单独走
+  /// MethodChannel；太频繁会拖慢主 isolate，所以 1 秒一次。
+  void _pushNotificationProgress({bool force = false}) {
+    if (_disposed) return;
+    final DateTime now = DateTime.now();
+    if (!force &&
+        _lastNotificationPush != null &&
+        now.difference(_lastNotificationPush!) < const Duration(seconds: 1)) {
+      return;
+    }
+    _lastNotificationPush = now;
+
+    int done = 0;
+    int total = 0;
+    double speed = 0;
+    int count = 0;
+    for (final DownloadTask task in _tasks) {
+      if (task.status != DownloadStatus.running) continue;
+      count++;
+      done += task.receivedBytes;
+      total += task.totalBytes ?? 0;
+      speed += task.speed.value;
+    }
+    unawaited(
+      DownloadForegroundService.update(
+        done: done,
+        total: total,
+        speed: speed,
+        count: count,
+      ),
+    );
+  }
 
   /// 从磁盘恢复上次的下载记录。
   ///
@@ -160,10 +290,15 @@ class DownloadQueue extends ChangeNotifier {
   ///
   /// [pool] 是当前页面的嗅探结果，用来给 DASH 分片配对音频轨。
   /// 传了就自动补一条伴随任务并在两条都完成后合并；不传就是普通单文件下载。
+  ///
+  /// [pageTitle] 是来源页标题，只用于给 HLS 文件名加上辨识度（所有站点都叫
+  /// playlist.m3u8 根本分不清）。下载时才能可靠拿到标题 —— 嗅探那一刻
+  /// `onLoadStart` 刚触发，`getTitle()` 还是上一页的。
   DownloadTask enqueue(
     MediaItem item, {
     Map<String, String>? extraHeaders,
     List<MediaItem>? pool,
+    String? pageTitle,
   }) {
     final DownloadTask? existing = _findByMedia(item.id);
     if (existing != null &&
@@ -172,7 +307,11 @@ class DownloadQueue extends ChangeNotifier {
       return existing;
     }
 
-    final DownloadTask task = _createTask(item, extraHeaders: extraHeaders);
+    final DownloadTask task = _createTask(
+      item,
+      extraHeaders: extraHeaders,
+      pageTitle: pageTitle,
+    );
     _tasks.insert(0, task);
 
     // DASH：画面和声音是两条独立请求，只下视频轨得到的是哑的。
@@ -193,8 +332,9 @@ class DownloadQueue extends ChangeNotifier {
   DownloadTask _createTask(
     MediaItem item, {
     Map<String, String>? extraHeaders,
+    String? pageTitle,
   }) {
-    final Map<String, String> headers = <String, String>{
+    Map<String, String> headers = <String, String>{
       ...item.requestHeaders,
       ...?extraHeaders,
     };
@@ -202,9 +342,17 @@ class DownloadQueue extends ChangeNotifier {
         !headers.keys.any((String k) => k.toLowerCase() == 'referer')) {
       headers['Referer'] = item.pageUrl!;
     }
+    // 站点规则最后套：它优先级最高，专门覆盖自动那套搞不定的特例。
+    final List<SiteRule>? rules = _siteRules?.call();
+    if (rules != null && rules.isNotEmpty) {
+      headers = applySiteRules(headers, item.url, rules);
+    }
 
-    final String fileName =
-        item.fileName ?? _fallbackFileName(item.url, item.type);
+    final String fileName = fileNameWithPageTitle(
+      item.fileName ?? _fallbackFileName(item.url, item.type),
+      item.type,
+      pageTitle,
+    );
 
     return DownloadTask(
       id: HashUtil.md5Short(
@@ -264,6 +412,34 @@ class DownloadQueue extends ChangeNotifier {
       _safeNotify();
       _schedulePersist();
     }
+  }
+
+  /// 暂停单条。运行中的取消请求，等待/排队中的直接改状态，都落到 paused。
+  /// 和 [pauseAll] 共用同一套标记与 catch 分流。
+  void pause(String taskId) {
+    final DownloadTask? task = _findById(taskId);
+    if (task == null) return;
+    if (!task.status.isRunningOrWaiting && task.status != DownloadStatus.pending) {
+      return;
+    }
+    _pausedIds.add(taskId);
+    task.setStatus(DownloadStatus.paused);
+    task.speed.value = 0;
+    _tokens[taskId]?.cancel('pause');
+    _safeNotify();
+    _schedulePersist();
+    _pushNotificationProgress(force: true);
+  }
+
+  /// 继续单条。只放这一条回 pending，其他 paused 的不动。
+  void resume(String taskId) {
+    final DownloadTask? task = _findById(taskId);
+    if (task == null || task.status != DownloadStatus.paused) return;
+    _pausedIds.remove(taskId);
+    task.setStatus(DownloadStatus.pending);
+    _safeNotify();
+    _schedulePersist();
+    _pump();
   }
 
   /// 重试。HLS 断点续传靠未删的临时目录，这里不需要额外状态。
@@ -401,16 +577,19 @@ class DownloadQueue extends ChangeNotifier {
       await _runWithNetworkRecovery(task, token);
     } on DownloadException catch (e) {
       if (token.isCancelled) {
-        task.setStatus(DownloadStatus.canceled);
+        _settleCancel(task, token);
       } else {
         task.fail(e.toString());
       }
     } on DioException catch (e) {
-      task.fail(CancelToken.isCancel(e) ? '已取消' : (e.message ?? '网络错误'));
-      if (CancelToken.isCancel(e)) task.setStatus(DownloadStatus.canceled);
+      if (CancelToken.isCancel(e)) {
+        _settleCancel(task, token);
+      } else {
+        task.fail(e.message ?? '网络错误');
+      }
     } catch (e) {
       if (token.isCancelled) {
-        task.setStatus(DownloadStatus.canceled);
+        _settleCancel(task, token);
       } else {
         task.fail(e.toString());
       }
@@ -420,6 +599,8 @@ class DownloadQueue extends ChangeNotifier {
       _safeNotify();
       _afterTaskSettled(task);
       _schedulePersist();
+      // 这条不再算 running，通知栏要立刻反映（否则会停在最后采样的进度）。
+      _pushNotificationProgress(force: true);
       _pump();
     }
   }
@@ -648,6 +829,7 @@ class DownloadQueue extends ChangeNotifier {
           lastSampleMs = elapsed;
           lastSampleBytes = received;
         }
+        _pushNotificationProgress();
       },
     );
 
@@ -689,6 +871,9 @@ class DownloadQueue extends ChangeNotifier {
           lastSampleMs = elapsed;
           lastSampleBytes = progress.bytes;
         }
+        // HLS 按分片计进度，但通知栏只认字节；把累计字节落到 task 上供聚合。
+        task.receivedBytes = progress.bytes;
+        _pushNotificationProgress();
       },
     );
 
@@ -703,6 +888,23 @@ class DownloadQueue extends ChangeNotifier {
 
     task.needsRemux = result.needsRemux;
     task.complete(target.path, containerExt: result.container);
+  }
+
+  /// HLS 的文件名带上来源页标题：`playlist.m3u8` → `playlist_某某视频.m3u8`。
+  ///
+  /// 只处理 HLS —— 图片/音频/普通视频的文件名本身通常就有辨识度，
+  /// 而 m3u8 几乎每个站都叫 playlist / index，不加来源根本分不清。
+  @visibleForTesting
+  static String fileNameWithPageTitle(
+    String fileName,
+    MediaType type,
+    String? pageTitle,
+  ) {
+    final String title = pageTitle?.trim() ?? '';
+    if (type != MediaType.hls || title.isEmpty) return fileName;
+    final String ext = p.extension(fileName);
+    final String base = p.basenameWithoutExtension(fileName);
+    return StoragePaths.sanitizeFileName('${base}_$title$ext');
   }
 
   String _fallbackFileName(String url, MediaType type) {
