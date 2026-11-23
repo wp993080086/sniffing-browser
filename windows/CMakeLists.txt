@@ -87,6 +87,26 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     COMPONENT Runtime)
 endif()
 
+# 内置 ffmpeg.exe：桌面端转码引擎，让绿包在没装 ffmpeg 的机器上也能转换。
+# 二进制不入库，由 tools/prepare_windows_ffmpeg.dart 从开发机拷到
+# windows/ffmpeg/bin/；OPTIONAL 表示缺失时静默跳过 —— 那样只是转码提示
+# 「请安装 ffmpeg」，下载和浏览都不受影响。
+# 放到 exe 同目录，正好命中 SystemFfmpegEngine._locateBinary 的第一处查找。
+set(SNIFF_BUNDLED_FFMPEG "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg/bin/ffmpeg.exe")
+install(FILES "${SNIFF_BUNDLED_FFMPEG}"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime
+  OPTIONAL)
+
+# GPLv3 合规：分发的二进制必须附带许可证全文与源码获取说明。
+# 两个文件缺一不可 —— NOTICE 里引用了同目录的 LICENSE.GPLv3.txt。
+set(SNIFF_FFMPEG_NOTICE "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg/THIRD_PARTY_NOTICES.txt")
+set(SNIFF_FFMPEG_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg/LICENSE.GPLv3.txt")
+install(FILES "${SNIFF_FFMPEG_NOTICE}" "${SNIFF_FFMPEG_LICENSE}"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime
+  OPTIONAL)
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"

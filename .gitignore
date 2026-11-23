@@ -59,6 +59,10 @@ crash_*.dmp
 # Windows 构建中间产物
 /windows/flutter/ephemeral/
 
+# 内置 ffmpeg 二进制不入库（78MB）：由 dart run tools/prepare_windows_ffmpeg.dart
+# 从本机拷贝；许可证文本与说明文件仍随仓库分发。
+/windows/ffmpeg/bin/ffmpeg.exe
+
 # WorkBuddy 本地会话与记忆，不入库
 .workbuddy/
 

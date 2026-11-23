@@ -1,0 +1,37 @@
+本软件随附第三方组件：FFmpeg
+========================================
+
+组件：FFmpeg（含 ffmpeg.exe 命令行程序）
+版本：见随附 ffmpeg.exe 执行 `ffmpeg -version` 的输出
+来源：gyan.dev 的 essentials 构建（https://www.gyan.dev/ffmpeg/builds/）
+许可证：GNU General Public License v3.0（GPLv3），完整文本见同目录
+        LICENSE.GPLv3.txt
+
+为什么是 GPLv3
+----------------------------------------
+该构建使用了 --enable-gpl --enable-version3，包含 x264 / x265 等 GPL
+编码器，因此二进制整体按 GPLv3 分发。本应用自身的代码不受影响 ——
+许可证义务只针对随包分发的 FFmpeg 二进制本身。
+
+随包分发需要满足（摘其主要义务，完整条款以 LICENSE.GPLv3.txt 为准）：
+  1. 附带许可证全文 —— 本目录 LICENSE.GPLv3.txt 已随包提供。
+  2. 说明源码获取方式 —— 见下。
+  3. 不移除二进制里的版权与许可声明。
+
+源码获取
+----------------------------------------
+FFmpeg 源码：https://ffmpeg.org/download.html
+本构建对应的源码与构建脚本：https://www.gyan.dev/ffmpeg/builds/
+gyan.dev 在其下载页同时提供对应版本的 source 包。
+
+如果你 redistribution 本应用
+----------------------------------------
+分发 Windows 包时请保留同目录下这两个文件：
+  - ffmpeg.exe
+  - LICENSE.GPLv3.txt
+  - THIRD_PARTY_NOTICES.txt（本文件）
+三者由 windows/CMakeLists.txt 自动拷入 bundle，无需手动处理。
+
+如不希望承担 GPL 义务，可用 LGPL 构建替换（不含 x264/x265 等 GPL
+编码器，本项目的 TS→MP4 复制与 MP3 转码不依赖它们）。替换方式见
+tools/prepare_windows_ffmpeg.dart 顶部说明。
