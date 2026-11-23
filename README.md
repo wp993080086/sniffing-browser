@@ -32,7 +32,7 @@
 | 后台保活 | Android 下载期间挂 `dataSync` 前台服务（常驻通知）+ `PARTIAL_WAKE_LOCK`，锁屏后 CPU 不休眠、传输与重试定时器照常跑 | 编译通过，待真机复验 |
 | HLS | master 选最高码率、并发分片、AES-128 解密、fMP4 init 段处理、二进制合并、分片级续传 | 端到端测试 |
 | DASH（MPD） | 解析 SegmentTemplate / SegmentList / SegmentTimeline，自动挑最高码率视频轨 + 音轨，init + `.m4s` 分片并发下载后拼接，音轨 `-c copy` 合成；清单文件名带来源页标题 | 单元测试 + 队列端到端测试；DRM / 直播明确拒绝 |
-| 转码（桌面） | 调用系统 ffmpeg：TS→MP4 无损转封装、音频→MP3 重编码，进度解析、取消 | 端到端测试 |
+| 转码（Windows） | 优先用内置 ffmpeg（绿包自带，无需本机安装）；未内置时回退到系统 PATH。TS→MP4 无损转封装、音频→MP3 重编码，进度解析、取消。内置二进制需先跑 `dart run tools/prepare_windows_ffmpeg.dart` | 端到端测试 + 打包待验 |
 | 日志与诊断 | 文件日志、全局错误捕获、通道计数器、诊断页 | Windows 实测 |
 | 导出 | 桌面纯 Dart 复制；Android MediaStore（MediaStore + `IS_PENDING`） | 桌面可用；Android 真机已验证 mp4 入库 |
 | 转码（Android） | 原生 `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`（LGPL）经 MethodChannel 桥接，完成后自动写进 MediaStore | 已实现，待真机复验 MP3 落库 |
@@ -192,6 +192,25 @@ flutter run -d <android>    # Android
 - **NuGet**：`flutter_inappwebview_windows` 通过 NuGet 拉取 WebView2 SDK 和 WIL，缺了会报
   `NUGET-NOTFOUND`，构建直接失败。把 `nuget.exe` 放进 PATH 即可（本项目实测放在
   `~/.devtools/nuget.exe`，构建时前置到 PATH）
+
+### Windows 打绿包（内置 ffmpeg）
+
+默认 Windows 包**不含** ffmpeg，转码会提示「请安装」。要让绿包自带转码引擎（终端用户
+无需装任何东西）：
+
+```bash
+dart run tools/prepare_windows_ffmpeg.dart   # 从本机拷 ffmpeg.exe 到 windows/ffmpeg/bin/
+flutter build windows --release
+```
+
+脚本从 `SNIFF_FFMPEG_DIR` / `~/.devtools/ffmpeg/bin/` / PATH 找 `ffmpeg.exe`，找不到就
+跳过、不阻断构建。CMake 的 `install(... OPTIONAL)` 会把它和许可证文件一起拷进
+`build/windows/x64/runner/Release/`，正好落在 `SystemFfmpegEngine` 的查找路径上。
+
+只内置 `ffmpeg.exe`（约 78MB）：`ffprobe.exe` 缺了只是转码进度退化为不确定圈，不影响转换
+本身。二进制**不入库**（`.gitignore` 已排除），每次打包由脚本现拷。许可证义务见
+`windows/ffmpeg/THIRD_PARTY_NOTICES.txt` —— 本机现成的是 gyan.dev **GPLv3** 构建；
+若不想承担 GPL 义务，换同站的 LGPL 版覆盖即可（本项目的 TS→MP4 / MP3 不依赖 GPL 编码器）。
 
 本机若配置了 HTTP 代理，`flutter test` / `flutter run` 可能因为 flutter_tester 的
 localhost WebSocket 被代理拦截而报 `Invalid WebSocket upgrade request`。加环境变量即可：

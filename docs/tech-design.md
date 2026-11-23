@@ -354,8 +354,25 @@ USB 真机若为 32 位设备需自行编译 AAR 或改用系统 API 方案。
 
 桌面 FFmpeg 查找顺序（`SystemFfmpegEngine.locateFfmpeg()`）：
 `SNIFF_FFMPEG_DIR` → 应用 exe 同目录（含 `bin/`、`ffmpeg/bin/`）→
-`~/.devtools/ffmpeg/bin/` → PATH。`ffmpeg` 与 `ffprobe` 都需要；
-缺 ffprobe 仍能转换，只是不显示进度百分比。安装脚本见 `README.md`。
+`~/.devtools/ffmpeg/bin/` → PATH。`ffmpeg` 必需，`ffprobe` 可选 ——
+缺 ffprobe 仍能转换，只是进度退化为不确定圈。
+
+#### 5.7.2 Windows 绿包内置 ffmpeg（2026-11-23）
+
+桌面转码此前要用户自己装 ffmpeg。现在可以把 `ffmpeg.exe` 直接打进绿包：
+
+- `dart run tools/prepare_windows_ffmpeg.dart` 从本机找 `ffmpeg.exe`（查找顺序同上），
+  拷到 `windows/ffmpeg/bin/`；二进制不入库，避免 78MB 永久撑大仓库；
+- `windows/CMakeLists.txt` 加 `install(FILES ... OPTIONAL)`，把它和
+  `LICENSE.GPLv3.txt`、`THIRD_PARTY_NOTICES.txt` 一起拷到 exe 同目录 ——
+  正好命中 `locateFfmpeg()` 的第一处查找。`OPTIONAL` 保证没内置时构建照常完成；
+- 只内置 `ffmpeg.exe`，不内置 `ffprobe.exe`：后者只用于进度百分比，缺了不影响
+  转换本身，省一半体积；
+- **许可证**：本机现成的是 gyan.dev essentials 构建（`--enable-gpl --enable-version3`），
+  GPLv3 义务由随包的许可证全文与源码说明满足。应用自身代码不受影响；
+  要避开 GPL 就换 gyan.dev 的 LGPL 构建，本项目的 TS→MP4 与 MP3 不依赖 GPL 编码器。
+
+这样终端用户拿到 Windows 绿包即开即用，不需要装 ffmpeg 或配环境变量。
 
 #### 常用命令
 
