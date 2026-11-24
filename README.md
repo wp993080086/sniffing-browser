@@ -34,7 +34,7 @@
 | DASH（MPD） | 解析 SegmentTemplate / SegmentList / SegmentTimeline，自动挑最高码率视频轨 + 音轨（下载前可按码率 / 语言选），init + `.m4s` 分片并发下载后拼接，音轨 `-c copy` 合成；清单文件名带来源页标题 | 单元测试 + 队列端到端测试；DRM / 直播明确拒绝 |
 | 轨道选择 | 流媒体点「下载」时先探一次清单：有多条清晰度 / 音轨 / 字幕才弹选择面板，没得选或探测失败就直接下（选择是锦上添花，不做成前置条件）。HLS 字幕下载为同名 `.vtt` | 单元测试覆盖变体 / 轨道 / 字幕解析与指定下载 |
 | 转码（Windows） | 优先用内置 ffmpeg（绿包自带，无需本机安装）；未内置时回退到系统 PATH。TS→MP4 无损转封装、音频→MP3 重编码，进度解析、取消。内置二进制需先跑 `dart run tools/prepare_windows_ffmpeg.dart` | 端到端测试 + 打包待验 |
-| 日志与诊断 | 文件日志、全局错误捕获、通道计数器、诊断页 | Windows 实测 |
+| 日志与诊断 | 文件日志（跨会话追加、2MB 滚动）、全局错误捕获、通道计数器、日志页（关键字搜索 + 级别过滤）、导出 txt（合并磁盘历史） | 单元与组件测试覆盖 |
 | 导出 | 桌面纯 Dart 复制；Android MediaStore（MediaStore + `IS_PENDING`） | 桌面可用；Android 真机已验证 mp4 入库 |
 | 转码（Android） | 原生 `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`（LGPL）经 MethodChannel 桥接，完成后自动写进 MediaStore | 已实现，待真机复验 MP3 落库 |
 | 转换页与持久化 | 独立「转换」页（入口在下载页 AppBar，带进行中角标）；任务落盘 `transcode_jobs.json`，重启后 pending 续跑、running 标中断；已完成项可「打开」产物 | 单元测试覆盖 |
@@ -125,10 +125,10 @@ RUN_E2E=1 flutter test test/transcode_e2e_test.dart
 
 ## 排查问题
 
-界面右上角虫形图标进诊断页，能看到：
+「设置 → 排查 → 运行日志」进日志页，能看到：
 
-- 实时日志（可按“只看警告和错误”过滤）
-- 通道计数器。判断嗅探为什么没结果：
+- 实时日志（搜索框按域名 / 文件名 / 错误信息过滤，可按级别只看警告以上或仅错误）
+- 通道计数器（点顶部环境卡片展开）。判断嗅探为什么没结果：
 
 | 现象 | 含义 |
 | --- | --- |
@@ -142,6 +142,27 @@ RUN_E2E=1 flutter test test/transcode_e2e_test.dart
 - Windows / 桌面：`下载/SniffingBrowser/logs/app.log`
 - Android：`/sdcard/Android/data/com.wp.sniffing_browser/files/SniffingBrowser/logs/app.log`
 - HarmonyOS：应用 `filesDir/SniffingBrowser/logs/app.log`
+
+日志页的「导出为 txt」不看内存那 800 条，而是把 `app.log.1` + `app.log` 整段
+（含之前几次启动的会话，每次启动有一条分隔线）拼上还没落盘的尾巴，前面附
+版本 / 平台 / 存储路径 / 计数器。导出文件落在同目录的 `log-YYYYMMDD-HHmmss.txt`，
+只保留最近 3 份。
+
+导出之后**直接在应用内打开预览**（`log_view_page.dart`）：内容逐行铺成等宽文本，
+可以滚动、跨行选中、复制全文，右上角再决定分享还是保存。
+
+- 移动端：分享走系统面板，可以存到「文件」或直接发出去；
+- 桌面端：分享按钮变成「用系统程序打开」，交给记事本之类。
+
+预览页逐行渲染而不是整篇一个 `SelectableText`：几 MB 的日志一次性排版会把
+主线程卡住。超过 20000 行时只显示前 20000 行（顶部有条说明），复制和分享的
+始终是完整文件。
+
+要翻之前导出的那几份，日志页右上角「更多 → 导出记录」（`log_exports_page.dart`）。
+留这个入口是因为重导出来的已经不是当时那份了。
+
+为什么要合并磁盘：最需要排的「闪退 / 白屏后重开」场景里，内存日志已经清空，
+现场只剩在文件里。
 
 全局错误捕获已装好（`FlutterError.onError`、`PlatformDispatcher.onError`、
 `runZonedGuarded` 三重），崩溃信息会写进同一个文件。
