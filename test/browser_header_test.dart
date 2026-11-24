@@ -39,7 +39,10 @@ void main() {
     // 第二层
     expect(find.text('百度'), findsOneWidget);
     expect(find.text('下载'), findsOneWidget);
-    expect(find.byTooltip('诊断日志'), findsOneWidget);
+    expect(find.byTooltip('设置'), findsOneWidget);
+    // 日志只留「设置 → 排查」一个入口，顶栏不再有虫形图标。
+    expect(find.byTooltip('诊断日志'), findsNothing);
+    expect(find.byIcon(Icons.bug_report_outlined), findsNothing);
     // 页签入口只数网页页签，起始页不算 —— 停在起始页时就是 0。
     expect(find.byTooltip('页签（0 个）'), findsOneWidget);
 

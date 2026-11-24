@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
-import '../../diagnostics/presentation/diagnostics_page.dart';
 import '../../downloader/presentation/download_page.dart';
 import '../../settings/presentation/settings_page.dart';
 import '../providers/tab_manager.dart';
@@ -13,8 +12,11 @@ import 'tab_switcher.dart';
 /// 顶栏，两层。
 ///
 /// 第一层是导航与输入（后退 / 前进 / 地址栏 / 刷新），第二层是「能干什么」
-/// （搜索引擎、资源嗅探、下载、诊断）。分开的理由很实际：以前全塞在 52px 的
+/// （搜索引擎、下载、设置）。分开的理由很实际：以前全塞在 52px 的
 /// AppBar 里，地址栏只剩一半宽度，功能按钮还得跟标题抢位置。
+///
+/// 日志入口不在这里：它和「设置 → 排查」是同一个页面，留两个入口只会让人
+/// 猜哪个才是正路。
 class BrowserHeader extends ConsumerWidget {
   const BrowserHeader({super.key, required this.onNavigate});
 
@@ -75,7 +77,6 @@ class _ToolbarRow extends StatelessWidget {
           _RedirectGuardButton(),
           _TabsButton(),
           _DownloadButton(),
-          _DiagnosticsButton(),
           _SettingsButton(),
         ],
       ),
@@ -204,23 +205,6 @@ class _DownloadButton extends ConsumerWidget {
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (BuildContext context) => const DownloadPage(),
-        ),
-      ),
-    );
-  }
-}
-
-class _DiagnosticsButton extends StatelessWidget {
-  const _DiagnosticsButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return _BarButton(
-      icon: Icons.bug_report_outlined,
-      tooltip: '诊断日志',
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (BuildContext context) => const DiagnosticsPage(),
         ),
       ),
     );
