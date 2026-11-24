@@ -5,10 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../../../core/utils/format_util.dart';
-import '../../downloader/domain/download_task.dart';
 import '../data/thumbnail_cache.dart';
 import '../domain/media_item.dart';
 import '../domain/media_type.dart';
+import 'download_action.dart';
+import 'media_preview_page.dart';
 
 /// 单条捕获结果。
 class ResourceTile extends ConsumerWidget {
@@ -40,31 +41,17 @@ class ResourceTile extends ConsumerWidget {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
       ),
+      // 点整行看预览，右侧按钮才是下载：列表里名字都长一个样，
+      // 先看一眼比下完再删便宜。
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) => MediaPreviewPage(item: item),
+        ),
+      ),
       trailing: IconButton(
         icon: const Icon(Icons.download_rounded, size: 20),
         tooltip: '下载',
-        onPressed: () {
-          // 把整页资源一起传下去：DASH 站点的画面和声音是两条独立的 m4s，
-          // 只下视频轨得到的是哑的。队列会自己配对、自己合并。
-          final DownloadTask task = ref.read(downloadQueueProvider).enqueue(
-            item,
-            pool: ref.read(snifferProvider).items,
-            // 标题要到 handleLoadStop 之后才拿得到，嗅探那一刻还是上一页的；
-            // 而换页会清空嗅探列表，所以当前页就是这条资源的来源页。
-            pageTitle: ref.read(tabManagerProvider).title,
-          );
-          final String hint = task.pairedTaskId != null
-              ? '（已配对音轨，完成后自动合并）'
-              : '';
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(
-              SnackBar(
-                content: Text('已加入下载队列：${task.fileName}$hint'),
-                duration: const Duration(seconds: 2),
-              ),
-            );
-        },
+        onPressed: () => enqueueDownload(context, ref, item),
       ),
     );
   }
