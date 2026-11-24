@@ -248,7 +248,9 @@ lib/
 ## 已知限制
 
 - 仍 403 的站点：请求头已经尽量补齐（含 CookieManager 现取 Cookie），但要求
-  `Origin`、`Sec-Fetch-*`、动态签名或绑定客户端 TLS 指纹的站点仍可能拒绝
+  `Origin`、`Sec-Fetch-*`、动态签名或绑定客户端 TLS 指纹的站点仍可能拒绝。
+  任务会给 3 轮自动重试（每轮重新取 Cookie），签名过期或按 IP 拦截的仍会失败，
+  需要回网页重新嗅探或换网络
 - DRM（Widevine / FairPlay）内容无法处理
 - YouTube、B 站这类签名 + MSE 拼流的站点抓不到原始分片（抖音走 5.9 的 hook 路线，
   不走嗅探）
