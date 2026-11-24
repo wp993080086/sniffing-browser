@@ -59,4 +59,39 @@ void main() {
       'log-20261124-163004.txt',
     ]);
   });
+
+  test('list 按时间倒序返回现存的导出', () async {
+    for (int i = 0; i < 2; i++) {
+      await LogExporter.write('第 $i 份', now: DateTime(2026, 11, 24, 16, 30, i));
+    }
+
+    final List<File> files = await LogExporter.list();
+
+    expect(files.map((File f) => p.basename(f.path)).toList(), <String>[
+      'log-20261124-163001.txt',
+      'log-20261124-163000.txt',
+    ]);
+  });
+
+  test('目录还不存在时 list 返回空而不是抛异常', () async {
+    expect(await LogExporter.list(), isEmpty);
+  });
+
+  test('labelOf 把文件名里的时间戳转成可读标签', () {
+    final File file = File(
+      p.join(LogExporter.directory.path, 'log-20261124-163005.txt'),
+    );
+    expect(LogExporter.labelOf(file), '2026-11-24 16:30:05');
+
+    // 同一秒的第二份带 `-1` 后缀，时间部分仍然认得出来。
+    final File duplicated = File(
+      p.join(LogExporter.directory.path, 'log-20261124-163005-1.txt'),
+    );
+    expect(LogExporter.labelOf(duplicated), '2026-11-24 16:30:05');
+  });
+
+  test('名字被改过时 labelOf 回退到文件名', () {
+    final File file = File(p.join(LogExporter.directory.path, '随手改的.txt'));
+    expect(LogExporter.labelOf(file), '随手改的');
+  });
 }

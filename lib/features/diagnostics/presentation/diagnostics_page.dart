@@ -4,9 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/logging/app_log.dart';
-import '../../../core/platform/media_exporter.dart';
 import '../../../core/platform/platform_info.dart';
 import '../data/log_exporter.dart';
+import 'log_exports_page.dart';
+import 'log_view_page.dart';
 
 /// 日志页：看日志、搜索、导出 txt。
 ///
@@ -18,6 +19,9 @@ import '../data/log_exporter.dart';
 ///
 /// 页面只展示内存里的最近 [AppLog.maxEntries] 条（实时）；导出才把磁盘上的历史
 /// 一并带上——崩溃重开之后，内存已经空了，现场只剩在文件里。
+///
+/// 导出不再直接弹系统分享面板，而是先进入应用内预览（[LogViewPage]）：手机上
+/// 分享面板只负责把文件送出去，看不到内容，而排错第一步恰恰是“看一眼”。
 class DiagnosticsPage extends StatefulWidget {
   const DiagnosticsPage({super.key});
 
@@ -100,15 +104,19 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
           PopupMenuButton<String>(
             tooltip: '更多',
             onSelected: (String value) {
-              if (value == 'copy') {
-                _copy();
-              } else {
-                _clear();
+              switch (value) {
+                case 'copy':
+                  _copy();
+                case 'files':
+                  _openExports();
+                default:
+                  _clear();
               }
             },
             itemBuilder: (BuildContext context) =>
                 const <PopupMenuEntry<String>>[
                   PopupMenuItem<String>(value: 'copy', child: Text('复制当前日志')),
+                  PopupMenuItem<String>(value: 'files', child: Text('导出记录')),
                   PopupMenuItem<String>(value: 'clear', child: Text('清空日志')),
                 ],
           ),
@@ -173,6 +181,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
 
   Future<void> _export() async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final NavigatorState navigator = Navigator.of(context);
     setState(() => _exporting = true);
     try {
       // 导出的是全量（含磁盘历史），不是屏幕上过滤后的子集——排查要的是现场，
@@ -180,29 +189,36 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       final String text = await AppLog.instance.exportBundle();
       final File file = await LogExporter.write(text);
 
-      if (PlatformInfo.isMobile) {
-        final bool shared = await MediaExporter.shareFile(file.path);
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              shared ? '已生成日志文件，选个应用保存或发送' : '已保存到 ${file.path}',
-            ),
-          ),
-        );
-      } else {
-        // 桌面端没有分享面板，直接交给默认程序打开（txt 一般是记事本）。
-        final bool opened = await MediaExporter.openFile(file.path);
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(opened ? '已导出并打开：${file.path}' : '已导出到 ${file.path}'),
-          ),
-        );
-      }
+      if (!mounted) return;
+      // 先把按钮恢复，而不是等预览页 pop 回来——它可能开着很久。
+      setState(() => _exporting = false);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('已导出 ${LogExporter.labelOf(file)}'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      // 导出完直接摊开给人看。以前手机上导出完只弹分享面板，用户连内容长
+      // 什么样都看不到，等于把唯一的现场交出去了却没法自己读。
+      await navigator.push(
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) =>
+              LogViewPage(path: file.path, title: LogExporter.labelOf(file)),
+        ),
+      );
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('导出失败：$e')));
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
+  }
+
+  void _openExports() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => const LogExportsPage(),
+      ),
+    );
   }
 
   Future<void> _copy() async {

@@ -38,7 +38,7 @@ class LogExporter {
   /// 失败不抛：删不掉旧文件不影响这次导出能不能看，最多多占点空间。
   static Future<void> prune() async {
     try {
-      final List<File> files = await _exportFiles();
+      final List<File> files = await list();
       if (files.length <= keepFiles) return;
       for (final File file in files.skip(keepFiles)) {
         try {
@@ -52,10 +52,10 @@ class LogExporter {
     }
   }
 
-  /// 现有导出文件，按文件名倒序（新的在前）。
+  /// 现有导出文件，按时间倒序（新的在前）。
   ///
   /// 文件名里是 `yyyyMMdd-HHmmss`，字典序即时间序，不用读文件属性。
-  static Future<List<File>> _exportFiles() async {
+  static Future<List<File>> list() async {
     final Directory dir = directory;
     if (!await dir.exists()) return <File>[];
     final List<File> files = await dir
@@ -71,6 +71,24 @@ class LogExporter {
     files.sort((File a, File b) => b.path.compareTo(a.path));
     return files;
   }
+
+  /// 文件名里的时间戳转成可读标签，解析不出来就退回文件名。
+  ///
+  /// 列表里给用户看的是 `2026-11-24 16:30:05` 这种形式；文件名被人改过时
+  /// 不能因此崩掉，所以留了兜底。
+  static String labelOf(File file) {
+    final String name = p.basenameWithoutExtension(file.path);
+    final Match? match = _stampPattern.firstMatch(name);
+    if (match == null) return name;
+    final String date = match.group(1)!;
+    final String clock = match.group(2)!;
+    return '${date.substring(0, 4)}-${date.substring(4, 6)}-'
+        '${date.substring(6, 8)} '
+        '${clock.substring(0, 2)}:${clock.substring(2, 4)}:'
+        '${clock.substring(4, 6)}';
+  }
+
+  static final RegExp _stampPattern = RegExp(r'^log-(\d{8})-(\d{6})');
 
   static File _uniqueFile(Directory dir, DateTime now) {
     String two(int v) => v.toString().padLeft(2, '0');
