@@ -142,9 +142,8 @@ class DownloadQueue extends ChangeNotifier {
 
   bool get hasRunning => _runningCount > 0;
 
-  bool get hasPaused => _tasks.any(
-    (DownloadTask t) => t.status == DownloadStatus.paused,
-  );
+  bool get hasPaused =>
+      _tasks.any((DownloadTask t) => t.status == DownloadStatus.paused);
 
   /// 通知栏的全局暂停。运行中/等网络的中断请求，等待中的直接改状态；
   /// 全部落到 paused，点继续后从 .part 断点续传。
@@ -435,7 +434,8 @@ class DownloadQueue extends ChangeNotifier {
   void pause(String taskId) {
     final DownloadTask? task = _findById(taskId);
     if (task == null) return;
-    if (!task.status.isRunningOrWaiting && task.status != DownloadStatus.pending) {
+    if (!task.status.isRunningOrWaiting &&
+        task.status != DownloadStatus.pending) {
       return;
     }
     _pausedIds.add(taskId);
@@ -459,15 +459,15 @@ class DownloadQueue extends ChangeNotifier {
   }
 
   /// 重试。HLS 断点续传靠未删的临时目录，这里不需要额外状态。
+  ///
+  /// 进度字段刻意不清零：底层 `.part` / 分片目录都还在，重试是接着下。
+  /// 清零会让界面先掉回 0 再跳回原处，看起来像重新下了一遍。
   void retry(String taskId) {
     final DownloadTask? task = _findById(taskId);
     if (task == null) return;
     if (!task.status.isFinished) return;
 
     task.error = null;
-    task.receivedBytes = 0;
-    task.segmentDone = 0;
-    task.progress.value = 0;
     task.speed.value = 0;
     // 重来一次可能配到上次还没出现的音频轨，结论要重新得出。
     task.mergedAudio = null;
@@ -630,27 +630,44 @@ class DownloadQueue extends ChangeNotifier {
   ///
   /// 不设总时长上限：熄屏、进电梯、过隧道都可能是几分钟级，断在哪一秒不由我们
   /// 决定。用户随时能取消，卡片上也一直显示在等，不存在「悄悄挂死」。
+  ///
+  /// 403 单独给有限轮次：每轮重新走一遍下载入口，会重新从 WebView 取 Cookie，
+  /// 会话轮换或短暂限流造成的 403 能自愈；签名过期 / IP 被封的几轮后照旧失败。
   Future<void> _runWithNetworkRecovery(
     DownloadTask task,
     CancelToken token,
   ) async {
-    int round = 0;
+    int networkRound = 0;
+    int forbiddenRound = 0;
     while (true) {
       try {
         await _runOnce(task, token);
         return;
       } on DownloadException catch (e) {
-        // 站点拒绝（403 / 404）、内容不对、已取消：等多久都不会变好，直接失败。
-        if (!e.network || token.isCancelled) rethrow;
+        if (token.isCancelled) rethrow;
 
-        final Duration wait = _networkWaitFor(round);
-        round++;
-        task.waitForNetwork(wait.inSeconds);
+        // 403 有次数上限；其余站点拒绝（404 等）、内容不对：等多久都不会变好。
+        if (!e.network &&
+            !(e.forbidden && forbiddenRound < _forbiddenRetries)) {
+          rethrow;
+        }
+
+        final Duration wait;
+        final int attempt;
+        if (e.network) {
+          wait = _networkWaitFor(networkRound);
+          attempt = ++networkRound;
+        } else {
+          wait = _networkWaitFor(forbiddenRound);
+          attempt = ++forbiddenRound;
+        }
+        task.waitForNetwork(wait, reason: e.network ? null : '站点拒绝访问');
         _safeNotify();
         logWarn(
           'Download',
-          '网络中断，${wait.inSeconds}s 后自动重试'
-          '（第 $round 次）: ${task.fileName}',
+          '${e.network ? '网络中断' : '站点拒绝访问'}，'
+              '${wait.inSeconds}s 后自动重试'
+              '（第 $attempt 次）: ${task.fileName}',
         );
 
         await _sleepUnlessCancelled(wait, token);
@@ -661,6 +678,9 @@ class DownloadQueue extends ChangeNotifier {
       }
     }
   }
+
+  /// 403 自动重试的轮次上限。签名过期 / IP 被封时再多轮也只是白等。
+  static const int _forbiddenRetries = 3;
 
   Future<void> _runOnce(DownloadTask task, CancelToken token) async {
     if (task.type == MediaType.hls) {
@@ -682,10 +702,7 @@ class DownloadQueue extends ChangeNotifier {
   }
 
   /// 可被取消打断的等待，否则点了取消还要干等满 60 秒。
-  static Future<void> _sleepUnlessCancelled(
-    Duration wait,
-    CancelToken token,
-  ) {
+  static Future<void> _sleepUnlessCancelled(Duration wait, CancelToken token) {
     return Future.any<void>(<Future<void>>[
       Future<void>.delayed(wait),
       token.whenCancel.then<void>((_) {}),
@@ -821,9 +838,12 @@ class DownloadQueue extends ChangeNotifier {
 
   Future<void> _runFile(DownloadTask task, CancelToken token) async {
     final File target = StoragePaths.uniqueFile(task.fileName);
+    // 续传时首帧带的是断点前已落盘的字节，拿它当基线才不会冒出几百 MB/s；
+    // 全新下载多等一个采样窗口再显示速度，肉眼无感。
     final _SpeedSampler speed = _SpeedSampler(
       window: const Duration(milliseconds: 500),
       onSpeed: task.setSpeed,
+      skipFirstFrame: true,
     );
 
     await _downloader.download(

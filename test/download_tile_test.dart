@@ -120,11 +120,77 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        child: MaterialApp(home: Scaffold(body: DownloadTile(task: task))),
+        child: MaterialApp(
+          home: Scaffold(body: DownloadTile(task: task)),
+        ),
       ),
     );
     await tester.pump();
 
     expect(find.text('已下载 1.0 KB / 约 2.0 KB'), findsOneWidget);
+  });
+
+  testWidgets('等待网络显示按秒倒计时，进度条停在断点处', (WidgetTester tester) async {
+    final DownloadTask task = _task(completed: false)
+      ..updateBytes(50, 100)
+      ..waitForNetwork(const Duration(seconds: 10));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(body: DownloadTile(task: task)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('秒后自动重试'), findsOneWidget);
+    final LinearProgressIndicator bar = tester.widget(
+      find.byType(LinearProgressIndicator),
+    );
+    expect(bar.value, closeTo(0.5, 1e-9));
+
+    // 卸载卡片，把每秒刷新的定时器停掉。
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('403 等待的文案是站点拒绝，不再说等待网络', (WidgetTester tester) async {
+    final DownloadTask task = _task(completed: false)
+      ..updateBytes(50, 100)
+      ..waitForNetwork(const Duration(seconds: 10), reason: '站点拒绝访问');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(body: DownloadTile(task: task)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('站点拒绝访问'), findsOneWidget);
+    expect(find.textContaining('等待网络'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('失败时进度停在断点，重试不会从 0 跳回来', (WidgetTester tester) async {
+    final DownloadTask task = _task(completed: false)
+      ..updateBytes(50, 100)
+      ..fail('网络错误');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(body: DownloadTile(task: task)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final LinearProgressIndicator bar = tester.widget(
+      find.byType(LinearProgressIndicator),
+    );
+    expect(bar.value, closeTo(0.5, 1e-9));
   });
 }

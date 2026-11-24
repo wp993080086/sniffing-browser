@@ -452,10 +452,7 @@ class FileDownloader {
     return _probe403Body(url, headers);
   }
 
-  Future<String?> _probe403Body(
-    String url,
-    Map<String, String> headers,
-  ) async {
+  Future<String?> _probe403Body(String url, Map<String, String> headers) async {
     try {
       final Response<String> probe = await _dio.get<String>(
         url,
@@ -690,6 +687,15 @@ class DownloadException implements Exception {
   /// 下载队列据此决定要不要等网络恢复再自动重试：断网等一会儿就能好，
   /// 403 / 404 等多久都一样。判定见 [FileDownloader._isNetworkFailure]。
   final bool network;
+
+  /// 站点返回 403。
+  ///
+  /// 队列会给有限轮次的重试机会：每轮重新从 WebView 取 Cookie，
+  /// 会话轮换 / 短暂限流造成的 403 有机会自愈；签名过期的则几轮后照旧失败。
+  bool get forbidden {
+    final Object? reason = cause;
+    return reason is DioException && reason.response?.statusCode == 403;
+  }
 
   @override
   String toString() => url == null ? message : '$message ($url)';

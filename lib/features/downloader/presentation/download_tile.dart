@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -58,11 +60,13 @@ class DownloadTile extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(2),
                 child: LinearProgressIndicator(
                   // 等待网络时进度冻在原处：给不确定进度条反而像是在重新下载。
+                  // 失败也停在断点处，重试时不用先从 0 再跳回来。
                   value:
                       status.isRunningOrWaiting ||
-                          status == DownloadStatus.completed
+                          status == DownloadStatus.completed ||
+                          status == DownloadStatus.failed
                       ? task.progress.value
-                      : (status == DownloadStatus.failed ? 0 : null),
+                      : null,
                   minHeight: 3,
                   backgroundColor: scheme.surfaceContainerHighest,
                 ),
@@ -74,17 +78,19 @@ class DownloadTile extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        Text(
-                          _statusText(status),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: status == DownloadStatus.failed
-                                ? scheme.error
-                                : scheme.onSurfaceVariant,
-                          ),
-                        ),
+                        status == DownloadStatus.waitingNetwork
+                            ? _RetryCountdown(task: task)
+                            : Text(
+                                _statusText(status),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: status == DownloadStatus.failed
+                                      ? scheme.error
+                                      : scheme.onSurfaceVariant,
+                                ),
+                              ),
                         if (sizeText != null)
                           Text(
                             sizeText,
@@ -156,10 +162,8 @@ class DownloadTile extends ConsumerWidget {
         final String size = FormatUtil.bytes(task.totalBytes);
         return '$percent% · $size';
       case DownloadStatus.waitingNetwork:
-        // 必须写清「会自动重试」，否则这条文案看起来和卡死没区别。
-        return task.networkWaitSeconds > 0
-            ? '等待网络，${task.networkWaitSeconds} 秒后自动重试'
-            : '等待网络，恢复后自动继续';
+        // 正常走 [_RetryCountdown]，它每秒重算剩余秒数；这里只是兜底文案。
+        return '等待网络，恢复后自动继续';
       case DownloadStatus.paused:
         return '已暂停';
       case DownloadStatus.completed:
@@ -450,6 +454,57 @@ class _TranscodeStatus extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// 等待网络时的倒计时。
+///
+/// 只重建自己这一行，不动整张卡片。剩余秒数由任务上的绝对死线反算，
+/// 熄屏期间系统即使把定时器压后，亮屏回来也不会偏。
+class _RetryCountdown extends StatefulWidget {
+  const _RetryCountdown({required this.task});
+
+  final DownloadTask task;
+
+  @override
+  State<_RetryCountdown> createState() => _RetryCountdownState();
+}
+
+class _RetryCountdownState extends State<_RetryCountdown> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final int remaining = widget.task.retryRemainingSeconds;
+    final String prefix = widget.task.retryReason ?? '等待网络';
+    final String text = widget.task.retryAt == null
+        ? '$prefix，恢复后自动继续'
+        : remaining > 0
+        ? '$prefix，$remaining 秒后自动重试'
+        : '$prefix，正在重试…';
+    return Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: 11,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
     );
   }
 }

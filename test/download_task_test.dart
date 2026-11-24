@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sniffing_browser/features/downloader/domain/download_status.dart';
 import 'package:sniffing_browser/features/downloader/domain/download_task.dart';
 import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
 
@@ -52,6 +53,28 @@ void main() {
 
       expect(task.totalSegments, isNull);
       expect(task.segmentDone, 0);
+    });
+  });
+
+  group('等待网络倒计时', () {
+    test('按绝对死线反算剩余秒数，离开等待就清掉', () {
+      final DownloadTask task = streamTask()
+        ..waitForNetwork(const Duration(seconds: 10), reason: '站点拒绝访问');
+
+      expect(task.status, DownloadStatus.waitingNetwork);
+      expect(task.retryRemainingSeconds, inInclusiveRange(9, 10));
+      expect(task.retryReason, '站点拒绝访问');
+
+      task.setStatus(DownloadStatus.running);
+      expect(task.retryAt, isNull);
+      expect(task.retryReason, isNull);
+      expect(task.retryRemainingSeconds, 0);
+    });
+
+    test('死线已过时剩余秒数为 0，不会出现负数', () {
+      final DownloadTask task = streamTask()..waitForNetwork(Duration.zero);
+
+      expect(task.retryRemainingSeconds, 0);
     });
   });
 }

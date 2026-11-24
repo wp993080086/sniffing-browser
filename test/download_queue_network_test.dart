@@ -48,6 +48,30 @@ class _FlakyAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// 一直返回 403，模拟链接签名过期 / 被 WAF 拒绝。
+class _ForbiddenAdapter implements HttpClientAdapter {
+  int calls = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    calls++;
+    return ResponseBody.fromBytes(
+      Uint8List.fromList(<int>[102, 111, 114, 98, 105, 100, 100, 101, 110]),
+      403,
+      headers: <String, List<String>>{
+        Headers.contentTypeHeader: <String>['text/plain'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 void main() {
   late Directory root;
 
@@ -147,5 +171,50 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
     expect(task.status, DownloadStatus.canceled);
+  });
+
+  test('403 自动重试有限轮次，之后仍失败', () async {
+    final Dio dio = Dio(
+      BaseOptions(
+        validateStatus: (int? code) => code != null && code < 400,
+        responseType: ResponseType.bytes,
+      ),
+    );
+    final _ForbiddenAdapter adapter = _ForbiddenAdapter();
+    dio.httpClientAdapter = adapter;
+
+    final DownloadQueue queue = DownloadQueue(
+      downloader: FileDownloader(dio: dio),
+      // 用例里不等真实秒数，轮次与上限逻辑不变
+      networkWaits: const <Duration>[Duration.zero],
+    );
+
+    final DownloadTask task = queue.enqueue(
+      MediaItem(
+        id: 'm3',
+        url: 'https://example.com/v3.mp4',
+        type: MediaType.video,
+        firstSeenAt: DateTime.now(),
+        fileName: 'v3.mp4',
+      ),
+    );
+
+    final List<String?> reasons = <String?>[];
+    task.statusNotifier.addListener(() {
+      if (task.status == DownloadStatus.waitingNetwork) {
+        reasons.add(task.retryReason);
+      }
+    });
+
+    final Stopwatch watch = Stopwatch()..start();
+    while (!task.status.isFinished &&
+        watch.elapsed < const Duration(seconds: 10)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
+    expect(task.status, DownloadStatus.failed);
+    expect(adapter.calls, greaterThan(1));
+    // 3 轮 403 等待，文案是「站点拒绝访问」，不是「等待网络」
+    expect(reasons, <String?>['站点拒绝访问', '站点拒绝访问', '站点拒绝访问']);
   });
 }

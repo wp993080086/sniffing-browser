@@ -65,8 +65,23 @@ class DownloadTask {
   String? savedPath;
   String? container; // ts / mp4 / mp3 ...
 
-  /// 「等待网络」状态下，下一次自动重试的间隔（秒）。
-  int networkWaitSeconds = 0;
+  /// 「等待网络」状态下，下一次自动重试的时间点。
+  ///
+  /// 存绝对时间而不是剩余秒数：熄屏或后台被挂起时 Dart 定时器不一定准点，
+  /// 用死线反算剩余秒数，界面回来时不会偏。
+  DateTime? retryAt;
+
+  /// 距下一次自动重试还有几秒，已到点返回 0。
+  int get retryRemainingSeconds {
+    final DateTime? at = retryAt;
+    if (at == null) return 0;
+    final int seconds = at.difference(DateTime.now()).inSeconds;
+    return seconds > 0 ? seconds : 0;
+  }
+
+  /// 等待重试的原因（如「站点拒绝访问」）。null 表示网络中断。
+  String? retryReason;
+
   bool needsRemux = false;
 
   ExportStatus exportStatus = ExportStatus.notExported;
@@ -87,6 +102,11 @@ class DownloadTask {
 
   void setStatus(DownloadStatus next) {
     if (_disposed || _status == next) return;
+    // 离开「等待网络」就丢掉重试死线与原因，避免卡片上还挂着过期倒计时。
+    if (next != DownloadStatus.waitingNetwork) {
+      retryAt = null;
+      retryReason = null;
+    }
     _status = next;
     statusNotifier.value = next;
   }
@@ -119,13 +139,15 @@ class DownloadTask {
     speed.value = bytesPerSecond;
   }
 
-  /// 进入「等待网络」，[nextRetrySeconds] 是下一次自动重试的间隔。
+  /// 进入「等待重试」，[wait] 是距离下一次自动重试的等待时长。
   ///
-  /// 不写 [error]：这不是错误，等下去多半会自己好；把原因挂在失败字段上，
-  /// 界面和恢复逻辑都会把它当失败处理。
-  void waitForNetwork(int nextRetrySeconds) {
+  /// [reason] 只有非网络原因（如 403）才传，界面据此换文案；
+  /// 不写 [error]：这不是错误，等下去可能自己好；挂在失败字段上会让
+  /// 界面和恢复逻辑都把它当失败处理。
+  void waitForNetwork(Duration wait, {String? reason}) {
     if (_disposed) return;
-    networkWaitSeconds = nextRetrySeconds;
+    retryAt = DateTime.now().add(wait);
+    retryReason = reason;
     setStatus(DownloadStatus.waitingNetwork);
     // 速度必须归零，否则卡片上会挂着断网前最后一刻的 MB/s。
     speed.value = 0;
