@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/app.dart';
+import 'core/constants/app_constants.dart';
 import 'core/logging/app_log.dart';
 import 'core/platform/platform_info.dart';
 import 'core/platform/storage_paths.dart';
@@ -31,6 +32,10 @@ Future<void> main() async {
       }
 
       logInfo('Boot', '存储根目录: ${StoragePaths.root.path}');
+      // 日志是追加写的，跨多次启动之后没有分隔线就分不清哪段是哪次。
+      AppLog.instance.banner(
+        '启动 ${AppConstants.version} · ${PlatformInfo.displayName}',
+      );
       runApp(const ProviderScope(child: SniffingBrowserApp()));
     },
     (Object error, StackTrace stack) {

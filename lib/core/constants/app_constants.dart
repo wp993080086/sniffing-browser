@@ -7,6 +7,12 @@ class AppConstants {
   /// 应用展示名。当前只有中文，未做国际化。
   static const String appName = '嗅探浏览器';
 
+  /// 展示用版本号，导出日志时写在头部。
+  ///
+  /// 必须和 `pubspec.yaml` 的 `version` 一致 —— 手动维护就一定会漂，
+  /// 所以 `test/app_version_test.dart` 会去读 pubspec 对一遍，改漏了直接红。
+  static const String version = '0.1.0+1';
+
   /// 启动时直接加载的网址。未设置则显示自写首页。
   ///
   /// 用环境变量指定，方便用命令行复现某个页面的问题：

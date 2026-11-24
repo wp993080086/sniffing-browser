@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
+import '../constants/app_constants.dart';
+import '../platform/platform_info.dart';
 import '../platform/storage_paths.dart';
 
 /// 日志级别。
@@ -42,11 +45,14 @@ class LogEntry {
     return '$t ${level.tag}/$tag $message';
   }
 
-  String get fileLine {
-    final String d =
-        '${time.year}-${time.month.toString().padLeft(2, '0')}-'
-        '${time.day.toString().padLeft(2, '0')}';
-    return '$d $formatted';
+  String get fileLine => '${stamp(time)} ${level.tag}/$tag $message';
+
+  /// `2026-11-24 16:23:01.042`。文件和导出头共用一种写法，方便对照。
+  static String stamp(DateTime time) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${time.year}-${two(time.month)}-${two(time.day)} '
+        '${two(time.hour)}:${two(time.minute)}:${two(time.second)}.'
+        '${time.millisecond.toString().padLeft(3, '0')}';
   }
 
   @override
@@ -77,12 +83,20 @@ class AppLog extends ChangeNotifier {
   final List<LogEntry> _entries = <LogEntry>[];
 
   /// 待写盘的内容，flush 时一次性写掉。
-  final List<String> _pending = <String>[];
+  final List<LogEntry> _pending = <LogEntry>[];
 
   File? _file;
   Timer? _flushTimer;
   bool _enabled = true;
   bool _installed = false;
+
+  /// 最后一条「确认写进文件」的日志时间。
+  ///
+  /// 导出要合并磁盘历史，又不能把已经落盘的行再抄一遍。用时间水位判断最省事：
+  /// 水位之前的都在文件里，之后的才需要从内存补。写盘失败时水位不推进，
+  /// 宁可多抄一段，也不要漏掉真正的原因。
+  DateTime? _flushedUntil;
+  bool _lastWriteFailed = false;
 
   /// 累计计数，诊断页用来判断“到底有没有触发”。
   final Map<String, int> _counters = <String, int>{};
@@ -174,7 +188,7 @@ class AppLog extends ChangeNotifier {
       print(entry.formatted);
     }
 
-    _pending.add(entry.fileLine);
+    _pending.add(entry);
     _scheduleFlush();
   }
 
@@ -187,33 +201,43 @@ class AppLog extends ChangeNotifier {
 
   void _flush() {
     if (_pending.isEmpty) return;
-    final List<String> batch = List<String>.from(_pending);
+    final List<LogEntry> batch = List<LogEntry>.from(_pending);
     _pending.clear();
 
     final File? f = _file;
     if (f == null) return;
 
     // 刻意不 await：写盘失败不应该影响业务，更不应该阻塞 UI。
-    unawaited(
-      f
-          .writeAsString('${batch.join('\n')}\n', mode: FileMode.append)
-          .catchError((Object _) => f),
-    );
+    unawaited(_append(batch, f));
+  }
+
+  Future<void> _append(List<LogEntry> batch, File f) async {
+    final DateTime last = batch.last.time;
+    try {
+      await f.writeAsString(
+        '${batch.map((LogEntry e) => e.fileLine).join('\n')}\n',
+        mode: FileMode.append,
+      );
+      _lastWriteFailed = false;
+      final DateTime? done = _flushedUntil;
+      // 两次 flush 可能乱序完成，取较大值才不会把已落盘的行误判成「还在内存」。
+      if (done == null || last.isAfter(done)) _flushedUntil = last;
+    } catch (_) {
+      _lastWriteFailed = true;
+    }
   }
 
   /// 崩溃前强制落盘。只在真正的致命错误路径上调用。
   Future<void> flushNow() async {
     _flushTimer?.cancel();
     _flushTimer = null;
-    final List<String> batch = List<String>.from(_pending);
+    if (_pending.isEmpty) return;
+
+    final List<LogEntry> batch = List<LogEntry>.from(_pending);
     _pending.clear();
     final File? f = _file;
-    if (f == null || batch.isEmpty) return;
-    try {
-      await f.writeAsString('${batch.join('\n')}\n', mode: FileMode.append);
-    } catch (_) {
-      // 已经尽力了。
-    }
+    if (f == null) return;
+    await _append(batch, f);
   }
 
   void clear() {
@@ -221,27 +245,120 @@ class AppLog extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 把当前全部日志导出成文本，供复制/分享。
+  /// 测试用：内存、计数器、写盘水位、文件绑定全部复位。
+  ///
+  /// [clear] 只管内存，因为排查时清空日志不该把写盘水位也丢掉；测试要的是
+  /// 每个用例一个干净的起点，所以单独开这个口子。
+  @visibleForTesting
+  void resetForTesting() {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    _entries.clear();
+    _pending.clear();
+    _counters.clear();
+    _flushedUntil = null;
+    _lastWriteFailed = false;
+    _file = null;
+  }
+
+  /// 当前内存里的日志，供页面直接展示。
   String export() => _entries.map((LogEntry e) => e.fileLine).join('\n');
 
-  /// 诊断信息头，附在导出内容前面。
-  String diagnosticsHeader() {
+  /// 写一条醒目的分隔线，用在每次启动的开头。
+  ///
+  /// 日志文件是追加写的，跨了十几次启动之后没有分隔线就分不清哪段是哪次跑出来的。
+  void banner(String text) {
+    info('Boot', '-------------------- $text --------------------');
+  }
+
+  /// 导出成一份可以直接读的排错文本：环境 + 磁盘历史 + 还没落盘的尾巴。
+  ///
+  /// 为什么不全用内存：内存只留 [maxEntries] 条且随进程消失，而最需要排的
+  /// 「闪退 / 白屏后重开」恰恰是内存已经清空、文件还留着现场的场景。
+  /// 为什么不全用文件：刚发生的那几行可能还在 [flushInterval] 的待写队列里。
+  Future<String> exportBundle() async {
+    // 先把待写队列推下去，否则文件末尾会缺最新一段。
+    await flushNow();
+
+    final StringBuffer out = StringBuffer()..write(exportHeader());
+    final String history = await _readHistory();
+    if (history.trim().isNotEmpty) {
+      out
+        ..writeln('=== 日志（磁盘历史，含本次之前的会话） ===')
+        ..writeln(history.trimRight());
+    }
+
+    final List<LogEntry> tail = _memoryTail();
+    if (tail.isNotEmpty) {
+      out
+        ..writeln()
+        ..writeln('=== ${history.trim().isEmpty ? "日志" : "内存中尚未落盘"} ===');
+      for (final LogEntry entry in tail) {
+        out.writeln(entry.fileLine);
+      }
+    }
+    return out.toString();
+  }
+
+  /// 环境头：出问题时这几个字段基本能排除一半的可能。
+  String exportHeader() {
     final StringBuffer sb = StringBuffer()
       ..writeln('=== 环境 ===')
+      ..writeln('应用: ${AppConstants.appName} ${AppConstants.version}')
+      ..writeln('导出时间: ${LogEntry.stamp(DateTime.now())}')
+      ..writeln('平台: ${PlatformInfo.displayName}')
       ..writeln(
-        '平台: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+        '系统: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
       )
       ..writeln('Dart: ${Platform.version}')
-      ..writeln('日志文件: ${_file?.path ?? "不可用"}')
-      ..writeln()
-      ..writeln('=== 计数器 ===');
-    for (final MapEntry<String, int> e in _counters.entries) {
-      sb.writeln('${e.key}: ${e.value}');
+      ..writeln('日志文件: ${_file?.path ?? "不可用（仅内存）"}');
+    try {
+      sb.writeln('存储根目录: ${StoragePaths.root.path}');
+    } catch (_) {
+      sb.writeln('存储根目录: 未初始化');
     }
     sb
+      ..writeln('内存条目: ${_entries.length} / $maxEntries')
       ..writeln()
-      ..writeln('=== 日志 ===');
+      ..writeln('=== 计数器 ===');
+    if (_counters.isEmpty) {
+      sb.writeln('(无)');
+    } else {
+      for (final MapEntry<String, int> e in _counters.entries) {
+        sb.writeln('${e.key}: ${e.value}');
+      }
+    }
+    sb.writeln();
     return sb.toString();
+  }
+
+  /// 读 `app.log.1` + `app.log`。
+  ///
+  /// 按字节读再宽松解码：进程被杀时最后一行可能被截断成半个汉字，
+  /// 直接 `readAsString` 会整份抛异常，等于把现场丢了。
+  Future<String> _readHistory() async {
+    final File? current = _file;
+    if (current == null) return '';
+
+    final StringBuffer sb = StringBuffer();
+    for (final File file in <File>[File('${current.path}.1'), current]) {
+      try {
+        if (!await file.exists()) continue;
+        sb
+          ..write(utf8.decode(await file.readAsBytes(), allowMalformed: true))
+          ..writeln();
+      } catch (_) {
+        // 单个文件读不出来就跳过，另一份还能用。
+      }
+    }
+    return sb.toString();
+  }
+
+  /// 水位之后、也就是还没进文件的那些条目。
+  List<LogEntry> _memoryTail() {
+    final DateTime? done = _flushedUntil;
+    if (done == null || _lastWriteFailed) return List<LogEntry>.from(_entries);
+    return _entries.where((LogEntry e) => e.time.isAfter(done)).toList();
   }
 
   @override

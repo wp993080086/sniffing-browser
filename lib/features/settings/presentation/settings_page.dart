@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../../../core/platform/platform_info.dart';
+import '../../diagnostics/presentation/diagnostics_page.dart';
 import '../data/app_settings.dart';
 import 'login_state_page.dart';
 import 'site_rules_page.dart';
@@ -10,8 +11,8 @@ import 'storage_page.dart';
 
 /// 设置页。入口在顶栏第二层的齿轮。
 ///
-/// 目前只有两项，都是「不知道就会一直踩坑」的：分片并发（被 CDN 限流时唯一的
-/// 解法）和代理（Dart 的 HttpClient 默认不读系统代理）。
+/// 分区按「改了会立刻影响下一次请求」优先排：网络（站点规则 / 登录态）、
+/// 下载（并发、完成后动作、续传）、存储、排查（日志）、代理。
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
 
@@ -156,7 +157,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             ),
           ),
           const SizedBox(height: 20),
-          _SectionTitle('网络'),
+          _SectionTitle('排查'),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.article_outlined, size: 20),
+            title: const Text('运行日志', style: TextStyle(fontSize: 13)),
+            subtitle: Text(
+              '出错时看现场，可导出为 txt',
+              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+            ),
+            trailing: const Icon(Icons.chevron_right, size: 18),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => const DiagnosticsPage(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          _SectionTitle('代理'),
           TextField(
             controller: _proxyController,
             keyboardType: TextInputType.url,
