@@ -76,6 +76,7 @@ class HlsDownloader {
     Map<String, String> headers = const <String, String>{},
     CancelToken? userCancelToken,
     void Function(HlsProgress progress)? onProgress,
+    String? preferredVariantUri,
   }) async {
     await workDir.create(recursive: true);
 
@@ -86,7 +87,12 @@ class HlsDownloader {
     });
 
     final ({M3u8Playlist playlist, String? variantLabel}) loaded =
-        await _loadPlaylist(playlistUrl, headers, internal);
+        await _loadPlaylist(
+          playlistUrl,
+          headers,
+          internal,
+          preferredVariantUri: preferredVariantUri,
+        );
     final M3u8Playlist playlist = loaded.playlist;
 
     if (playlist.segments.isEmpty) {
@@ -154,8 +160,8 @@ class HlsDownloader {
     }
 
     // 并发数来自设置页。下限兜到 1：0 会让 Future.wait 空跑，整个任务卡死。
-    final int limit = _segmentConcurrency?.call() ??
-        AppConstants.maxConcurrentSegments;
+    final int limit =
+        _segmentConcurrency?.call() ?? AppConstants.maxConcurrentSegments;
     final int concurrency = limit < 1 ? 1 : (total < limit ? total : limit);
     await Future.wait(<Future<void>>[
       for (int i = 0; i < concurrency; i++) worker(),
@@ -200,11 +206,58 @@ class HlsDownloader {
     );
   }
 
+  /// 探一次 master playlist：可选的清晰度（变体）与字幕轨。
+  ///
+  /// 一次请求同时给出两类选项，避免「列清晰度」和「列字幕」各拉一遍清单。
+  /// 不是 master（没有变体）时两者都是空。
+  Future<({List<M3u8Variant> variants, List<M3u8Media> subtitles})> probe({
+    required String playlistUrl,
+    Map<String, String> headers = const <String, String>{},
+  }) async {
+    final String text = await _downloader.fetchString(
+      url: playlistUrl,
+      headers: headers,
+    );
+    if (!text.trimLeft().startsWith('#EXTM3U')) {
+      return (variants: const <M3u8Variant>[], subtitles: const <M3u8Media>[]);
+    }
+    final M3u8Playlist playlist = parser.parse(text, Uri.parse(playlistUrl));
+    return (
+      variants: playlist.variants,
+      // 没有 URI 的字幕轨（EXT-X-MEDIA 允许省略，表示在子 playlist 里）下不了。
+      subtitles: playlist.media
+          .where((M3u8Media m) => m.isSubtitle && m.uri != null)
+          .toList(),
+    );
+  }
+
+  /// 下载一条字幕 playlist，输出 `.vtt` 文件。
+  ///
+  /// 复用普通分片下载：字幕 playlist 的分片本身就是 `WEBVTT` 文本，按顺序
+  /// 二进制拼接就是合法的 vtt。不校验内容，坏文本交给播放器判断。
+  Future<File> downloadSubtitle({
+    required String playlistUrl,
+    required Directory workDir,
+    required File output,
+    Map<String, String> headers = const <String, String>{},
+    CancelToken? userCancelToken,
+  }) async {
+    final HlsDownloadResult result = await download(
+      playlistUrl: playlistUrl,
+      workDir: workDir,
+      output: output,
+      headers: headers,
+      userCancelToken: userCancelToken,
+    );
+    return result.file;
+  }
+
   Future<({M3u8Playlist playlist, String? variantLabel})> _loadPlaylist(
     String url,
     Map<String, String> headers,
-    CancelToken cancelToken,
-  ) async {
+    CancelToken cancelToken, {
+    String? preferredVariantUri,
+  }) async {
     final String text = await _downloader.fetchString(
       url: url,
       headers: headers,
@@ -224,14 +277,25 @@ class HlsDownloader {
     String? variantLabel;
 
     if (playlist.isMaster) {
-      final M3u8Variant best = parser.pickBestVariant(playlist);
-      variantLabel = best.label;
+      M3u8Variant? chosen;
+      if (preferredVariantUri != null) {
+        for (final M3u8Variant variant in playlist.variants) {
+          if (variant.uri.toString() == preferredVariantUri) {
+            chosen = variant;
+            break;
+          }
+        }
+      }
+      // 用户选的变体可能已经不在清单里（站点重排了清晰度），退回自动挑最好的，
+      // 而不是让整个任务失败。
+      chosen ??= parser.pickBestVariant(playlist);
+      variantLabel = chosen.label;
       final String childText = await _downloader.fetchString(
-        url: best.uri.toString(),
+        url: chosen.uri.toString(),
         headers: headers,
         cancelToken: cancelToken,
       );
-      playlist = parser.parse(childText, best.uri);
+      playlist = parser.parse(childText, chosen.uri);
     }
 
     if (playlist.segments.isEmpty && !playlist.isMaster) {

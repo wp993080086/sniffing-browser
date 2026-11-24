@@ -10,11 +10,7 @@ enum DashTrackKind { video, audio }
 
 /// MPD 里的一条时长轴条目：`<S t="..." d="..." r="..."/>`。
 class MpdTimelineEntry {
-  const MpdTimelineEntry({
-    this.t,
-    required this.d,
-    this.r = 0,
-  });
+  const MpdTimelineEntry({this.t, required this.d, this.r = 0});
 
   /// 起点的 timescale 单位。空表示接在上一条末尾。
   final int? t;
@@ -63,27 +59,20 @@ class MpdSegmentTemplate {
 
 /// `<SegmentList>`：分片地址逐个列出，没有模板。
 class MpdSegmentList {
-  const MpdSegmentList({
-    this.initialization,
-    this.media = const <String>[],
-  });
+  const MpdSegmentList({this.initialization, this.media = const <String>[]});
 
   final String? initialization;
   final List<String> media;
 
   MpdSegmentList inheritFrom(MpdSegmentList parent) => MpdSegmentList(
-        initialization: initialization ?? parent.initialization,
-        media: media.isEmpty ? parent.media : media,
-      );
+    initialization: initialization ?? parent.initialization,
+    media: media.isEmpty ? parent.media : media,
+  );
 }
 
 /// 一条 Representation 最终继承到的分片寻址方式。
 class MpdSegmentInfo {
-  const MpdSegmentInfo({
-    this.template,
-    this.list,
-    this.hasSegmentBase = false,
-  });
+  const MpdSegmentInfo({this.template, this.list, this.hasSegmentBase = false});
 
   final MpdSegmentTemplate? template;
   final MpdSegmentList? list;
@@ -96,7 +85,9 @@ class MpdSegmentInfo {
     return MpdSegmentInfo(
       template: template == null
           ? parent.template
-          : template!.inheritFrom(parent.template ?? const MpdSegmentTemplate()),
+          : template!.inheritFrom(
+              parent.template ?? const MpdSegmentTemplate(),
+            ),
       list: list == null
           ? parent.list
           : list!.inheritFrom(parent.list ?? const MpdSegmentList()),
@@ -113,6 +104,7 @@ class MpdRepresentation {
     this.height,
     this.mimeType,
     this.codecs,
+    this.lang,
     this.baseUrls = const <Uri>[],
     this.segment,
   });
@@ -123,6 +115,9 @@ class MpdRepresentation {
   final int? height;
   final String? mimeType;
   final String? codecs;
+
+  /// `lang="en"` 这类语言标记，多音轨 / 多字幕时用它区分。
+  final String? lang;
   final List<Uri> baseUrls;
   final MpdSegmentInfo? segment;
 }
@@ -132,6 +127,7 @@ class MpdAdaptationSet {
     this.mimeType,
     this.contentType,
     this.codecs,
+    this.lang,
     this.baseUrls = const <Uri>[],
     this.segment,
     this.representations = const <MpdRepresentation>[],
@@ -141,6 +137,7 @@ class MpdAdaptationSet {
   final String? mimeType;
   final String? contentType;
   final String? codecs;
+  final String? lang;
   final List<Uri> baseUrls;
   final MpdSegmentInfo? segment;
   final List<MpdRepresentation> representations;
@@ -194,6 +191,7 @@ class MpdSelectedTrack {
     this.width,
     this.height,
     this.codecs,
+    this.lang,
   });
 
   final DashTrackKind kind;
@@ -206,11 +204,18 @@ class MpdSelectedTrack {
   final int? height;
   final String? codecs;
 
+  /// ISO 639 语言标记，音频/字幕多轨时用来区分。
+  final String? lang;
+
   String get label {
-    final int? w = width;
     final int? h = height;
-    if (w != null && h != null) return '${h}p · ${bandwidth ?? 0} bps';
-    return kind == DashTrackKind.video ? '视频轨' : '音频轨';
+    final int? kbps = bandwidth == null ? null : (bandwidth! / 1000).round();
+    final List<String> parts = <String>[
+      if (h != null) '${h}p' else if (kind == DashTrackKind.video) '视频轨',
+      if (kbps != null && kbps > 0) '$kbps kbps',
+      if (lang != null && lang!.isNotEmpty) lang!,
+    ];
+    return parts.isEmpty ? id : parts.join(' · ');
   }
 }
 

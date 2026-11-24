@@ -37,6 +37,7 @@ class M3u8Parser {
 
     final List<M3u8Variant> variants = <M3u8Variant>[];
     final List<M3u8Segment> segments = <M3u8Segment>[];
+    final List<M3u8Media> media = <M3u8Media>[];
 
     int mediaSequence = 0;
     bool isEndList = false;
@@ -57,6 +58,11 @@ class M3u8Parser {
 
       if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) {
         mediaSequence = int.tryParse(line.substring(22).trim()) ?? 0;
+        continue;
+      }
+
+      if (line.startsWith('#EXT-X-MEDIA:')) {
+        media.add(_parseMedia(line.substring(13), baseUri));
         continue;
       }
 
@@ -177,6 +183,7 @@ class M3u8Parser {
       return M3u8Playlist(
         baseUri: baseUri,
         variants: variants,
+        media: media,
         mediaSequence: mediaSequence,
         isEndList: isEndList,
         targetDuration: targetDuration,
@@ -186,11 +193,28 @@ class M3u8Parser {
     return M3u8Playlist(
       baseUri: baseUri,
       segments: segments,
+      media: media,
       mediaSequence: mediaSequence,
       isEndList: isEndList,
       initSegmentUrl: initSegmentUrl,
       isFmp4: isFmp4,
       targetDuration: targetDuration,
+    );
+  }
+
+  /// `#EXT-X-MEDIA:` 后面那段属性。
+  M3u8Media _parseMedia(String attrs, Uri baseUri) {
+    final Map<String, String> map = _parseAttributes(attrs);
+    final String? uriValue = map['URI'];
+    return M3u8Media(
+      type: map['TYPE'] ?? '',
+      uri: uriValue == null || uriValue.isEmpty
+          ? null
+          : baseUri.resolve(uriValue),
+      groupId: map['GROUP-ID'],
+      name: map['NAME'],
+      language: map['LANGUAGE'],
+      isDefault: (map['DEFAULT'] ?? '').toUpperCase() == 'YES',
     );
   }
 

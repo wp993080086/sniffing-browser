@@ -107,6 +107,10 @@ class DownloadStore {
       'savedPath': task.savedPath,
       'container': task.container,
       'needsRemux': task.needsRemux,
+      'videoTrackId': task.videoTrackId,
+      'audioTrackId': task.audioTrackId,
+      'subtitleTrackId': task.subtitleTrackId,
+      'subtitleTag': task.subtitleTag,
       'exportStatus': task.exportStatus.name,
     };
   }
@@ -154,6 +158,10 @@ class DownloadStore {
       ..savedPath = raw['savedPath'] as String?
       ..container = raw['container'] as String?
       ..needsRemux = raw['needsRemux'] as bool? ?? false
+      ..videoTrackId = raw['videoTrackId'] as String?
+      ..audioTrackId = raw['audioTrackId'] as String?
+      ..subtitleTrackId = raw['subtitleTrackId'] as String?
+      ..subtitleTag = raw['subtitleTag'] as String?
       ..exportStatus =
           _enumByName(ExportStatus.values, raw['exportStatus'] as String?) ??
           ExportStatus.notExported;

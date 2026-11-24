@@ -11,6 +11,7 @@ import '../../../core/platform/download_foreground_service.dart';
 import '../../../core/platform/media_exporter.dart';
 import '../../../core/platform/storage_paths.dart';
 import '../../../core/utils/hash_util.dart';
+import '../../settings/data/app_settings.dart';
 import '../../settings/data/site_rule.dart';
 import '../../sniffer/domain/media_item.dart';
 import '../../sniffer/domain/media_type.dart';
@@ -19,10 +20,13 @@ import '../../transcoder/domain/transcode_job.dart';
 import '../domain/dash_pair.dart';
 import '../domain/download_status.dart';
 import '../domain/download_task.dart';
+import '../domain/track_option.dart';
 import 'dash/dash_downloader.dart';
+import 'dash/mpd_models.dart';
 import 'download_store.dart';
 import 'file_downloader.dart';
 import 'hls/hls_downloader.dart';
+import 'hls/m3u8_models.dart';
 
 /// 下载队列。
 ///
@@ -42,12 +46,16 @@ class DownloadQueue extends ChangeNotifier {
     DownloadStore? store,
     int Function()? segmentConcurrency,
     List<SiteRule> Function()? siteRules,
+    AfterDownload Function()? afterDownload,
+    bool Function()? autoResume,
     List<Duration> networkWaits = defaultNetworkWaits,
   }) : _downloader = downloader ?? FileDownloader(),
        _transcoder = transcoder,
        _poolSupplier = poolSupplier,
        _store = store,
        _siteRules = siteRules,
+       _afterDownload = afterDownload,
+       _autoResume = autoResume,
        _networkWaits = networkWaits {
     // HLS 缺省复用同一个 downloader：Cookie / 超时 / 重试策略必须和单文件
     // 一致，否则会出现「playlist 拿得到、分片 403」这种难查的差异。
@@ -105,6 +113,15 @@ class DownloadQueue extends ChangeNotifier {
 
   /// 站点规则现取：设置页改完对下一个新任务立刻生效，不重建队列。
   final List<SiteRule> Function()? _siteRules;
+
+  /// 完成后动作现取，理由同站点规则：改设置不该重建正在跑下载的队列。
+  final AfterDownload Function()? _afterDownload;
+
+  /// 启动时是否自动继续未完成任务，现取。
+  final bool Function()? _autoResume;
+
+  /// 已经执行过完成动作的任务。合并与任务收尾会各来一次，靠它去重。
+  final Set<String> _afterDownloadApplied = <String>{};
 
   final List<DownloadTask> _tasks = <DownloadTask>[];
   final Map<String, CancelToken> _tokens = <String, CancelToken>{};
@@ -265,10 +282,13 @@ class DownloadQueue extends ChangeNotifier {
   /// 规则和转换队列不同，因为两者的「未完成」含义不一样：
   /// - `completed`：产物还在就能直接看、导出、转码；文件被清掉了（用户清
   ///   `Android/data`、系统回收空间）就标成失败，否则点导出才发现是空的。
-  /// - 其余（pending / running / paused）：**一律标成「已中断，可重试」，
-  ///   不自动重跑**。下载是随进程走的，应用被杀之后不可能还在跑；而且这些
-  ///   地址（m3u8 / m4s）多半带签名，隔一段时间就过期，重启后自动跑只会刷
-  ///   一屏 403，还可能在移动网络下白耗流量。
+  /// - `pending` / `running` / `paused`：按设置决定。开启「重启自动续传」
+  ///   （默认）就重新排队接着下，底层 `.part` 与分片目录都还在，是真正的
+  ///   断点续传；关闭则标成「已中断，可重试」。
+  ///
+  /// 为什么给开关：这些地址（m3u8 / m4s）多半带签名，隔久了就过期，重启后
+  /// 自动跑可能刷一屏 403，移动网络下还会白耗流量。默认开是因为用户按下
+  /// 下载就是想要文件到手；不想被这样打扰时可以关。
   ///
   /// 用户点重试时任务 id 不变，HLS 的临时分片目录（`tmp/<taskId>/seg_*.part`）
   /// 还在，所以那是真正的分片级续传，不是从头再来。
@@ -279,6 +299,11 @@ class DownloadQueue extends ChangeNotifier {
 
     final List<DownloadTask> tasks = await store.load();
     if (_disposed || tasks.isEmpty) return;
+
+    // 不注入表示「不自动续传」：测试与旧调用点不该因为少传一个参数就去联网。
+    // 生产端在 providers 里注入设置值（默认开）。
+    final bool resume = _autoResume?.call() ?? false;
+    int resumable = 0;
 
     for (final DownloadTask task in tasks) {
       if (task.status == DownloadStatus.completed) {
@@ -292,13 +317,27 @@ class DownloadQueue extends ChangeNotifier {
         }
       } else if (task.status != DownloadStatus.canceled &&
           task.status != DownloadStatus.failed) {
-        task.fail('应用重启，下载已中断，可重试');
+        if (resume) {
+          // 重新排队，等下面 _pump 接手。暂停过的也一并继续：重启后
+          // 「还在暂停」只会让人以为卡住了，真要停就再点一次暂停。
+          task
+            ..error = null
+            ..setStatus(DownloadStatus.pending);
+          resumable++;
+        } else {
+          task.fail('应用重启，下载已中断，可重试');
+        }
       }
       _tasks.add(task);
     }
-    logInfo('Download', '已恢复 ${_tasks.length} 条下载记录');
+    logInfo(
+      'Download',
+      '已恢复 ${_tasks.length} 条下载记录'
+          '${resumable > 0 ? "，自动续传 $resumable 条" : ""}',
+    );
     _safeNotify();
     _schedulePersist();
+    if (resumable > 0) _pump();
   }
 
   /// 入队。同一 mediaId 已在队列中则不重复添加，直接返回已有任务。
@@ -314,6 +353,10 @@ class DownloadQueue extends ChangeNotifier {
     Map<String, String>? extraHeaders,
     List<MediaItem>? pool,
     String? pageTitle,
+    String? videoTrackId,
+    String? audioTrackId,
+    String? subtitleTrackId,
+    String? subtitleTag,
   }) {
     final DownloadTask? existing = _findByMedia(item.id);
     if (existing != null &&
@@ -322,11 +365,12 @@ class DownloadQueue extends ChangeNotifier {
       return existing;
     }
 
-    final DownloadTask task = _createTask(
-      item,
-      extraHeaders: extraHeaders,
-      pageTitle: pageTitle,
-    );
+    final DownloadTask task =
+        _createTask(item, extraHeaders: extraHeaders, pageTitle: pageTitle)
+          ..videoTrackId = videoTrackId
+          ..audioTrackId = audioTrackId
+          ..subtitleTrackId = subtitleTrackId
+          ..subtitleTag = subtitleTag;
     _tasks.insert(0, task);
 
     // DASH：画面和声音是两条独立请求，只下视频轨得到的是哑的。
@@ -349,19 +393,7 @@ class DownloadQueue extends ChangeNotifier {
     Map<String, String>? extraHeaders,
     String? pageTitle,
   }) {
-    Map<String, String> headers = <String, String>{
-      ...item.requestHeaders,
-      ...?extraHeaders,
-    };
-    if (item.pageUrl != null &&
-        !headers.keys.any((String k) => k.toLowerCase() == 'referer')) {
-      headers['Referer'] = item.pageUrl!;
-    }
-    // 站点规则最后套：它优先级最高，专门覆盖自动那套搞不定的特例。
-    final List<SiteRule>? rules = _siteRules?.call();
-    if (rules != null && rules.isNotEmpty) {
-      headers = applySiteRules(headers, item.url, rules);
-    }
+    final Map<String, String> headers = _headersFor(item, extraHeaders);
 
     final String fileName = fileNameWithPageTitle(
       item.fileName ?? _fallbackFileName(item.url, item.type),
@@ -382,6 +414,82 @@ class DownloadQueue extends ChangeNotifier {
       headers: headers,
       isStream: item.type.isStream,
     );
+  }
+
+  /// 一条资源下载时该带的请求头。
+  ///
+  /// 探测可选轨道也走这里：探测用的是同一个地址，头不一致就会出现
+  /// 「能列出清晰度、真下却 403」的怪事。
+  Map<String, String> _headersFor(
+    MediaItem item,
+    Map<String, String>? extraHeaders,
+  ) {
+    Map<String, String> headers = <String, String>{
+      ...item.requestHeaders,
+      ...?extraHeaders,
+    };
+    if (item.pageUrl != null &&
+        !headers.keys.any((String k) => k.toLowerCase() == 'referer')) {
+      headers['Referer'] = item.pageUrl!;
+    }
+    // 站点规则最后套：它优先级最高，专门覆盖自动那套搞不定的特例。
+    final List<SiteRule>? rules = _siteRules?.call();
+    if (rules != null && rules.isNotEmpty) {
+      headers = applySiteRules(headers, item.url, rules);
+    }
+    return headers;
+  }
+
+  /// 下载前探测可选轨道（HLS 清晰度 / DASH 音轨）。
+  ///
+  /// 返回空表示没得选：不是 master playlist、只有一个变体、或探测失败。
+  /// 探测失败**不抛异常** —— 用户点「下载」的核心诉求是把文件拿到，
+  /// 不能因为列个清晰度失败就整个下不了；退回自动挑选即可。
+  Future<List<TrackOption>> probeTracks(
+    MediaItem item, {
+    Map<String, String>? extraHeaders,
+  }) async {
+    final Map<String, String> headers = _headersFor(item, extraHeaders);
+    try {
+      if (item.type == MediaType.hls) {
+        final ({List<M3u8Variant> variants, List<M3u8Media> subtitles}) probe =
+            await _hls.probe(playlistUrl: item.url, headers: headers);
+        return <TrackOption>[
+          for (final M3u8Variant variant in probe.variants)
+            TrackOption(
+              id: variant.uri.toString(),
+              label: variant.label,
+              group: TrackGroup.video,
+            ),
+          for (final M3u8Media subtitle in probe.subtitles)
+            TrackOption(
+              id: subtitle.uri!.toString(),
+              label: subtitle.label,
+              group: TrackGroup.subtitle,
+              tag: subtitle.fileTag,
+            ),
+        ];
+      }
+      if (item.type == MediaType.dash) {
+        final List<MpdSelectedTrack> tracks = await _dash.listTracks(
+          manifestUrl: item.url,
+          headers: headers,
+        );
+        return <TrackOption>[
+          for (final MpdSelectedTrack track in tracks)
+            TrackOption(
+              id: track.id,
+              label: track.label,
+              group: track.kind == DashTrackKind.video
+                  ? TrackGroup.video
+                  : TrackGroup.audio,
+            ),
+        ];
+      }
+    } catch (e) {
+      logWarn('Download', '探测可选轨道失败，按自动挑选处理: $e');
+    }
+    return const <TrackOption>[];
   }
 
   /// 给视频轨补一条音频轨任务，两条都完成后合并成一个带声音的 mp4。
@@ -491,6 +599,87 @@ class DownloadQueue extends ChangeNotifier {
     _schedulePersist();
     // 分片临时目录不会自己消失：删了记录还留着就是纯占空间。
     unawaited(StoragePaths.cleanTemp(taskId));
+  }
+
+  /// 删除任务记录与私有目录里的产物，返回真正删掉的文件数。
+  ///
+  /// 单删传一条 id，多选删传一批 —— 批量时不逐条 notify，避免列表重建多次。
+  ///
+  /// **只删私有根目录里的文件**：用户可能已经导出过一份到相册/下载目录，
+  /// 那份不归我们管，也不该被顺手删掉。路径越界一律不碰。
+  Future<int> deleteFiles(Iterable<String> taskIds) async {
+    int deleted = 0;
+    for (final String id in taskIds) {
+      final DownloadTask? task = _findById(id);
+      if (task == null) continue;
+
+      final String? path = task.savedPath;
+      if (path != null && p.isWithin(StoragePaths.root.path, path)) {
+        try {
+          final File file = File(path);
+          if (await file.exists()) {
+            await file.delete();
+            deleted++;
+          }
+        } catch (e) {
+          // 删不掉（占用中、权限）就把记录留着：抹掉记录等于假装空间回来了。
+          logWarn('Download', '删除文件失败: $path ($e)');
+          continue;
+        }
+      }
+
+      if (task.status == DownloadStatus.running) {
+        _tokens[task.id]?.cancel('user');
+      }
+      _tasks.remove(task);
+      _forgetPairState(task);
+      task.dispose();
+      unawaited(StoragePaths.cleanTemp(task.id));
+    }
+    _safeNotify();
+    _schedulePersist();
+    return deleted;
+  }
+
+  /// 批量转码。按文件类型挑一个能做的转换，跳过不适用项，返回排进队列的数量。
+  ///
+  /// 优先 MP4（TS / m4s 无损转封装，秒级完成），其次抽 MP3 —— 用户多选之后
+  /// 要的是「能播能用」，不该让他逐个判断该选哪种。
+  int transcodeFiles(Iterable<String> taskIds) {
+    final TranscodeQueue? transcoder = _transcoder;
+    if (transcoder == null) return 0;
+
+    int queued = 0;
+    for (final String id in taskIds) {
+      final DownloadTask? task = _findById(id);
+      final String? path = task?.savedPath;
+      if (task == null || path == null) continue;
+
+      final TranscodeKind? kind =
+          TranscodeKind.tsToMp4.appliesTo(
+            task.type,
+            path,
+            hasAudio: task.mergedAudio,
+          )
+          ? TranscodeKind.tsToMp4
+          : TranscodeKind.audioToMp3.appliesTo(
+              task.type,
+              path,
+              hasAudio: task.mergedAudio,
+            )
+          ? TranscodeKind.audioToMp3
+          : null;
+      if (kind == null) continue;
+
+      transcoder.enqueue(
+        sourcePath: path,
+        kind: kind,
+        sourceTaskId: task.id,
+        displayName: task.fileName,
+      );
+      queued++;
+    }
+    return queued;
   }
 
   void clearFinished() {
@@ -747,7 +936,14 @@ class DownloadQueue extends ChangeNotifier {
   /// 一条任务落定后，看看配对的那条是不是也好了，好了就合并。
   void _afterTaskSettled(DownloadTask task) {
     final String? peerId = task.pairedTaskId;
-    if (peerId == null) return;
+    if (peerId == null) {
+      // 没配对的单条：成功就在这里触发完成动作。
+      // 配对的那条要等合并收尾 —— 那时文件才是带声音的成品。
+      if (task.status == DownloadStatus.completed && !task.isCompanion) {
+        _applyAfterDownload(task);
+      }
+      return;
+    }
     final DownloadTask? peer = _findById(peerId);
     if (peer == null) return;
 
@@ -760,6 +956,47 @@ class DownloadQueue extends ChangeNotifier {
     final DownloadTask video = task.isCompanion ? peer : task;
     final DownloadTask audio = task.isCompanion ? task : peer;
     _scheduleMerge(video, audio);
+  }
+
+  /// 按设置执行「下载完成后」的动作。
+  ///
+  /// 只对已成功落盘的任务生效，且同一任务只执行一次：合并回调与任务收尾
+  /// 都会走到这里，重复触发会导出一份重复文件、或排第二次转码。
+  ///
+  /// 不适用就跳过而不是报错：用户选了「转为 MP4」，不代表每个文件都是 TS，
+  /// 图片和 MP3 直接略过才是预期行为。
+  void _applyAfterDownload(DownloadTask task) {
+    final AfterDownload action =
+        _afterDownload?.call() ?? AfterDownload.nothing;
+    if (action == AfterDownload.nothing) return;
+
+    final String? path = task.savedPath;
+    if (path == null) return;
+    if (!_afterDownloadApplied.add(task.id)) return;
+
+    if (action == AfterDownload.export) {
+      logInfo('Download', '完成后自动导出: ${task.fileName}');
+      unawaited(export(task.id));
+      return;
+    }
+
+    final TranscodeKind kind = action == AfterDownload.toMp4
+        ? TranscodeKind.tsToMp4
+        : TranscodeKind.audioToMp3;
+    if (!kind.appliesTo(task.type, path, hasAudio: task.mergedAudio)) {
+      logInfo('Download', '完成后动作跳过 ${kind.label}（不适用于 ${task.fileName}）');
+      return;
+    }
+
+    final TranscodeQueue? transcoder = _transcoder;
+    if (transcoder == null) return;
+    logInfo('Download', '完成后自动${kind.label}: ${task.fileName}');
+    transcoder.enqueue(
+      sourcePath: path,
+      kind: kind,
+      sourceTaskId: task.id,
+      displayName: task.fileName,
+    );
   }
 
   /// 配对里有一条失败了。
@@ -812,6 +1049,7 @@ class DownloadQueue extends ChangeNotifier {
           video.needsRemux = false;
           // 音频轨已经被合进 mp4，原始分片留在列表里只会让人困惑。
           _dropLater(audio);
+          _applyAfterDownload(video);
         } else {
           logWarn('Download', '合并失败（${status.label}），保留原始分片');
         }
@@ -888,6 +1126,7 @@ class DownloadQueue extends ChangeNotifier {
       output: rawOutput,
       headers: task.headers,
       userCancelToken: token,
+      preferredVariantUri: task.videoTrackId,
       onProgress: (HlsProgress progress) {
         task.updateSegments(
           progress.done,
@@ -910,6 +1149,37 @@ class DownloadQueue extends ChangeNotifier {
 
     task.needsRemux = result.needsRemux;
     task.complete(target.path, containerExt: result.container);
+
+    // 字幕跟着主文件走：主文件下成了才有意义，失败也不算整单失败。
+    await _downloadSubtitle(task, token);
+  }
+
+  /// 下载用户选的字幕，落成与主文件同名的 `.vtt`。
+  ///
+  /// 失败只记日志：视频已经下完了，因为字幕没拿到就把整单判失败只会让人
+  /// 白下一遍。用户能在下载库里看到 `.vtt` 有没有出现，缺了重新下即可。
+  Future<void> _downloadSubtitle(DownloadTask task, CancelToken token) async {
+    final String? playlist = task.subtitleTrackId;
+    if (playlist == null) return;
+
+    final File raw = File(p.join(StoragePaths.temp.path, '${task.id}.sub'));
+    try {
+      final File file = await _hls.downloadSubtitle(
+        playlistUrl: playlist,
+        workDir: StoragePaths.tempDirFor('${task.id}_sub'),
+        output: raw,
+        headers: task.headers,
+        userCancelToken: token,
+      );
+      final String base = p.basenameWithoutExtension(task.fileName);
+      final String tag = task.subtitleTag ?? 'sub';
+      final File target = StoragePaths.uniqueFile('$base.$tag.vtt');
+      await file.rename(target.path);
+      logInfo('Download', '字幕已保存: ${p.basename(target.path)}');
+    } catch (e) {
+      logWarn('Download', '字幕没下成，视频已保留: $e');
+      unawaited(StoragePaths.cleanTemp('${task.id}_sub'));
+    }
   }
 
   Future<void> _runDash(DownloadTask task, CancelToken token) async {
@@ -935,6 +1205,8 @@ class DownloadQueue extends ChangeNotifier {
       audioOutput: rawAudio,
       headers: task.headers,
       userCancelToken: token,
+      videoTrackId: task.videoTrackId,
+      audioTrackId: task.audioTrackId,
       onProgress: (DashProgress progress) {
         task.updateSegments(
           progress.done,
@@ -999,6 +1271,7 @@ class DownloadQueue extends ChangeNotifier {
         if (ok) {
           task.container = 'mp4';
           task.needsRemux = false;
+          _applyAfterDownload(task);
         } else {
           logWarn('Download', 'DASH 合并失败（${status.label}），保留无声视频');
         }

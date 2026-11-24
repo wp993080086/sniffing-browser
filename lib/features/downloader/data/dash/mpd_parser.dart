@@ -31,14 +31,17 @@ class MpdParser {
       throw MpdParseException('根节点不是 MPD，实际是 ${root.name.local}');
     }
 
-    final Duration? presentationDuration =
-        parseDuration(_attr(root, 'mediaPresentationDuration'));
+    final Duration? presentationDuration = parseDuration(
+      _attr(root, 'mediaPresentationDuration'),
+    );
     final List<Uri> rootBases = _baseUrls(root, <Uri>[baseUri]);
     final MpdSegmentInfo? rootSegment = _segmentInfo(root);
 
     final List<MpdPeriod> periods = <MpdPeriod>[];
-    final List<xml.XmlElement> periodNodes =
-        _childrenNamed(root, 'Period').toList();
+    final List<xml.XmlElement> periodNodes = _childrenNamed(
+      root,
+      'Period',
+    ).toList();
     for (final xml.XmlElement node in periodNodes) {
       final List<Uri> periodBases = _baseUrls(node, rootBases);
       final MpdSegmentInfo own = _segmentInfo(node) ?? const MpdSegmentInfo();
@@ -47,8 +50,10 @@ class MpdParser {
       final List<MpdAdaptationSet> adaptations = <MpdAdaptationSet>[];
       for (final xml.XmlElement a in _childrenNamed(node, 'AdaptationSet')) {
         final List<Uri> aBases = _baseUrls(a, periodBases);
-        final MpdSegmentInfo aSegment =
-            _inherit(_segmentInfo(a), periodSegment);
+        final MpdSegmentInfo aSegment = _inherit(
+          _segmentInfo(a),
+          periodSegment,
+        );
         final List<MpdRepresentation> representations = <MpdRepresentation>[];
 
         for (final xml.XmlElement r in _childrenNamed(a, 'Representation')) {
@@ -61,6 +66,7 @@ class MpdParser {
               height: _int(_attr(r, 'height')),
               mimeType: _attr(r, 'mimeType') ?? _attr(a, 'mimeType'),
               codecs: _attr(r, 'codecs') ?? _attr(a, 'codecs'),
+              lang: _attr(r, 'lang') ?? _attr(a, 'lang'),
               baseUrls: rBases,
               segment: _segmentInfo(r),
             ),
@@ -72,10 +78,12 @@ class MpdParser {
             mimeType: _attr(a, 'mimeType'),
             contentType: _attr(a, 'contentType'),
             codecs: _attr(a, 'codecs'),
+            lang: _attr(a, 'lang'),
             baseUrls: aBases,
             segment: aSegment,
             representations: representations,
-            protected: _childrenNamed(a, 'ContentProtection').isNotEmpty ||
+            protected:
+                _childrenNamed(a, 'ContentProtection').isNotEmpty ||
                 _childrenNamed(node, 'ContentProtection').isNotEmpty,
           ),
         );
@@ -83,7 +91,8 @@ class MpdParser {
 
       periods.add(
         MpdPeriod(
-          duration: parseDuration(_attr(node, 'duration')) ??
+          duration:
+              parseDuration(_attr(node, 'duration')) ??
               (periodNodes.length == 1 ? presentationDuration : null),
           baseUrls: periodBases,
           segment: periodSegment,
@@ -106,9 +115,49 @@ class MpdParser {
   }
 
   /// 从所有 Period 里挑最高码率的视频轨和音频轨。
-  MpdSelectedTracks selectTracks(MpdManifest manifest) {
+  ///
+  /// [videoId] / [audioId] 给定时按 id 精确取，取不到就退回「挑最好的」——
+  /// 用户选过之后 MPD 变了（多码率站点会重排），不该让整个下载失败。
+  MpdSelectedTracks selectTracks(
+    MpdManifest manifest, {
+    String? videoId,
+    String? audioId,
+  }) {
+    final List<MpdSelectedTrack> all = listTracks(manifest);
     MpdSelectedTrack? video;
     MpdSelectedTrack? audio;
+    // 命中用户指定的 id 之后就锁住，别再被「更好的那条」覆盖回去。
+    bool videoLocked = false;
+    bool audioLocked = false;
+
+    for (final MpdSelectedTrack track in all) {
+      if (track.kind == DashTrackKind.video) {
+        if (videoId != null && track.id == videoId) {
+          video = track;
+          videoLocked = true;
+        } else if (!videoLocked && _better(track, video)) {
+          video = track;
+        }
+      } else {
+        if (audioId != null && track.id == audioId) {
+          audio = track;
+          audioLocked = true;
+        } else if (!audioLocked && _better(track, audio)) {
+          audio = track;
+        }
+      }
+    }
+
+    if (video == null && audio == null) {
+      throw const MpdParseException('MPD 里找不到可下载的音视频轨（可能全是字幕或受保护内容）');
+    }
+    return MpdSelectedTracks(video: video, audio: audio);
+  }
+
+  /// 列出所有可下载的音视频轨，供「下载前选择清晰度 / 音轨」用。
+  List<MpdSelectedTrack> listTracks(MpdManifest manifest) {
+    final List<MpdSelectedTrack> result = <MpdSelectedTrack>[];
+    final Set<String> seen = <String>{};
 
     for (final MpdPeriod period in manifest.periods) {
       for (final MpdAdaptationSet adaptation in period.adaptations) {
@@ -149,33 +198,26 @@ class MpdParser {
           }
 
           final Uri base = _base(representation.baseUrls, manifest.baseUri);
-          final MpdSelectedTrack candidate = MpdSelectedTrack(
-            kind: kind,
-            id: representation.id,
-            baseUri: base,
-            segment: segment,
-            periodDuration: period.duration,
-            bandwidth: representation.bandwidth,
-            width: representation.width,
-            height: representation.height,
-            codecs: representation.codecs ?? adaptation.codecs,
+          // 多 Period 的流里同一条轨会重复出现，用 id 去重。
+          if (!seen.add('${kind.name}:${representation.id}')) continue;
+          result.add(
+            MpdSelectedTrack(
+              kind: kind,
+              id: representation.id,
+              baseUri: base,
+              segment: segment,
+              periodDuration: period.duration,
+              bandwidth: representation.bandwidth,
+              width: representation.width,
+              height: representation.height,
+              codecs: representation.codecs ?? adaptation.codecs,
+              lang: representation.lang ?? adaptation.lang,
+            ),
           );
-
-          if (kind == DashTrackKind.video) {
-            if (_better(candidate, video)) video = candidate;
-          } else {
-            if (_better(candidate, audio)) audio = candidate;
-          }
         }
       }
     }
-
-    if (video == null && audio == null) {
-      throw const MpdParseException(
-        'MPD 里找不到可下载的音视频轨（可能全是字幕或受保护内容）',
-      );
-    }
-    return MpdSelectedTracks(video: video, audio: audio);
+    return result;
   }
 
   /// 把模板里的 `$Number$` / `$Time$` / `$RepresentationID$` 换成实际值。
@@ -253,8 +295,12 @@ class MpdParser {
     final String mime = (mimeType ?? '').toLowerCase();
     final String type = (contentType ?? '').toLowerCase();
     final String codec = (codecs ?? '').toLowerCase();
-    if (mime.startsWith('video/') || type == 'video') return DashTrackKind.video;
-    if (mime.startsWith('audio/') || type == 'audio') return DashTrackKind.audio;
+    if (mime.startsWith('video/') || type == 'video') {
+      return DashTrackKind.video;
+    }
+    if (mime.startsWith('audio/') || type == 'audio') {
+      return DashTrackKind.audio;
+    }
     if (inherited != null) return inherited;
     if (RegExp(r'^(avc1|avc3|hvc1|hev1|vp09|av01|mp4v)').hasMatch(codec)) {
       return DashTrackKind.video;

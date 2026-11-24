@@ -9,6 +9,7 @@ class M3u8Playlist {
     required this.baseUri,
     this.variants = const <M3u8Variant>[],
     this.segments = const <M3u8Segment>[],
+    this.media = const <M3u8Media>[],
     this.mediaSequence = 0,
     this.isEndList = false,
     this.initSegmentUrl,
@@ -22,6 +23,9 @@ class M3u8Playlist {
 
   final List<M3u8Variant> variants;
   final List<M3u8Segment> segments;
+
+  /// `#EXT-X-MEDIA` 声明的附属轨道，目前只关心 SUBTITLES。
+  final List<M3u8Media> media;
   final int mediaSequence;
   final bool isEndList;
 
@@ -71,6 +75,50 @@ class M3u8Variant {
       parts.add('${mbps.toStringAsFixed(1)} Mbps');
     }
     return parts.isEmpty ? '未知码率' : parts.join(' · ');
+  }
+}
+
+/// `#EXT-X-MEDIA` 声明的一条附属轨道。
+///
+/// 只用来列出可选字幕：视频/音频分轨（AUDIO / VIDEO 类型的 EXT-X-MEDIA）
+/// 需要把多条 playlist 混流，本项目不涉及。
+class M3u8Media {
+  const M3u8Media({
+    required this.type,
+    required this.uri,
+    this.groupId,
+    this.name,
+    this.language,
+    this.isDefault = false,
+  });
+
+  /// `SUBTITLES` / `AUDIO` / `VIDEO` / `CLOSED-CAPTIONS`。
+  final String type;
+  final Uri? uri;
+  final String? groupId;
+  final String? name;
+  final String? language;
+  final bool isDefault;
+
+  bool get isSubtitle => type.toUpperCase() == 'SUBTITLES';
+
+  /// 展示名。优先语言 + 名称，两者都没有就退回「字幕」。
+  String get label {
+    final List<String> parts = <String>[
+      if (name != null && name!.isNotEmpty) name!,
+      if (language != null && language!.isNotEmpty) language!,
+    ];
+    return parts.isEmpty ? '字幕' : parts.join(' · ');
+  }
+
+  /// 写文件时用的片段名，去掉不适合做文件名的字符。
+  String get fileTag {
+    final String raw = (language?.isNotEmpty ?? false)
+        ? language!
+        : (name?.isNotEmpty ?? false)
+        ? name!
+        : 'sub';
+    return raw.replaceAll(RegExp(r'[\\/:*?"<>|\s]'), '_');
   }
 }
 

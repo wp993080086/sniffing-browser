@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../../core/platform/platform_info.dart';
 import '../data/app_settings.dart';
 import 'login_state_page.dart';
 import 'site_rules_page.dart';
@@ -115,6 +116,28 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             '频繁出现「第 N 个分片失败」通常是被 CDN 限流，调到 3 或更低再试；'
             '网络很好时调高到 8~10 能略快一些。',
           ),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.checklist_rounded, size: 20),
+            title: const Text('下载完成后', style: TextStyle(fontSize: 13)),
+            subtitle: Text(
+              settings.afterDownload.label,
+              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+            ),
+            trailing: const Icon(Icons.chevron_right, size: 18),
+            onTap: () => _pickAfterDownload(settings),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: settings.autoResume,
+            onChanged: settings.setAutoResume,
+            title: const Text('重启后自动续传', style: TextStyle(fontSize: 13)),
+            subtitle: Text(
+              '未下完的任务在下次启动时接着下（断点续传，不重新开始）',
+              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+            ),
+          ),
           const SizedBox(height: 20),
           _SectionTitle('存储'),
           ListTile(
@@ -168,6 +191,37 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         ],
       ),
     );
+  }
+
+  /// 选「下载完成后」的动作。桌面端不列导出：产物本来就在下载目录，
+  /// 再「导出」只是原地多拷一份。
+  Future<void> _pickAfterDownload(AppSettings settings) async {
+    final AfterDownload current = settings.afterDownload;
+    final AfterDownload? picked = await showDialog<AfterDownload>(
+      context: context,
+      builder: (BuildContext context) => SimpleDialog(
+        title: const Text('下载完成后', style: TextStyle(fontSize: 15)),
+        children: <Widget>[
+          for (final AfterDownload value in AfterDownload.values)
+            if (value != AfterDownload.export || PlatformInfo.isMobile)
+              // 用 ListTile + 勾选而不是 RadioListTile：后者 3.32 之后换了
+              // 管理选中值的 API，这套写法在两条 Flutter 版本线上都干净。
+              ListTile(
+                dense: true,
+                title: Text(value.label, style: const TextStyle(fontSize: 13)),
+                trailing: value == current
+                    ? Icon(
+                        Icons.check,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.primary,
+                      )
+                    : null,
+                onTap: () => Navigator.of(context).pop(value),
+              ),
+        ],
+      ),
+    );
+    if (picked != null) await settings.setAfterDownload(picked);
   }
 }
 

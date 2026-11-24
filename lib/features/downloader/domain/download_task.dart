@@ -84,6 +84,21 @@ class DownloadTask {
 
   bool needsRemux = false;
 
+  /// 用户选的视频轨 / 清晰度。null 表示自动挑最好的。
+  ///
+  /// HLS 存变体 playlist 的 URI，DASH 存 Representation id —— 两套标识体系
+  /// 不同，下载时各自解释，任务层只当字符串搬运。
+  String? videoTrackId;
+
+  /// 用户选的音轨（DASH 专用）。null 表示自动挑第一条。
+  String? audioTrackId;
+
+  /// 用户选的字幕 playlist 地址（HLS）。null 表示不下字幕。
+  String? subtitleTrackId;
+
+  /// 字幕文件名里的标记，如 `zh`。null 时退回 `sub`。
+  String? subtitleTag;
+
   ExportStatus exportStatus = ExportStatus.notExported;
 
   /// 0.0 ~ 1.0。未知总大小时保持 0，UI 用不确定进度条。

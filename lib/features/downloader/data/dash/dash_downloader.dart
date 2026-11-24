@@ -90,9 +90,9 @@ class DashDownloader {
     FileDownloader? downloader,
     MpdParser? parser,
     int Function()? segmentConcurrency,
-  })  : _downloader = downloader ?? FileDownloader(),
-        _parser = parser ?? const MpdParser(),
-        _segmentConcurrency = segmentConcurrency;
+  }) : _downloader = downloader ?? FileDownloader(),
+       _parser = parser ?? const MpdParser(),
+       _segmentConcurrency = segmentConcurrency;
 
   final FileDownloader _downloader;
   final MpdParser _parser;
@@ -100,6 +100,22 @@ class DashDownloader {
 
   /// 防住写错 duration 的 MPD 一次生成几十万个任务把内存打爆。
   static const int maxSegments = 20000;
+
+  /// 列出 MPD 里所有可下载的音视频轨，供下载前选择用。
+  Future<List<MpdSelectedTrack>> listTracks({
+    required String manifestUrl,
+    Map<String, String> headers = const <String, String>{},
+  }) async {
+    final String text = await _downloader.fetchString(
+      url: manifestUrl,
+      headers: headers,
+    );
+    final MpdManifest manifest = _parser.parse(
+      text,
+      baseUri: Uri.parse(manifestUrl),
+    );
+    return _parser.listTracks(manifest);
+  }
 
   Future<DashDownloadResult> download({
     required String manifestUrl,
@@ -109,6 +125,8 @@ class DashDownloader {
     Map<String, String> headers = const <String, String>{},
     CancelToken? userCancelToken,
     void Function(DashProgress progress)? onProgress,
+    String? videoTrackId,
+    String? audioTrackId,
   }) async {
     await workDir.create(recursive: true);
 
@@ -126,12 +144,14 @@ class DashDownloader {
     final MpdManifest manifest = _parser.parse(text, baseUri: manifestUri);
     if (manifest.isDynamic &&
         manifest.periods.every((MpdPeriod p) => p.duration == null)) {
-      throw const MpdParseException(
-        '这是直播 DASH 流，没有固定分片数，无法完整下载',
-      );
+      throw const MpdParseException('这是直播 DASH 流，没有固定分片数，无法完整下载');
     }
 
-    final MpdSelectedTracks selected = _parser.selectTracks(manifest);
+    final MpdSelectedTracks selected = _parser.selectTracks(
+      manifest,
+      videoId: videoTrackId,
+      audioId: audioTrackId,
+    );
     final List<_DashTrackPlan> plans = <_DashTrackPlan>[];
     if (selected.video != null) plans.add(_planFor(selected.video!));
     // 纯音轨清单没有视频轨，音轨就落在 index 0，不能把「音轨」写死成 1。
@@ -205,8 +225,7 @@ class DashDownloader {
             DashProgress(done: done, total: total, bytes: fetchedBytes),
           );
         } catch (e) {
-          if (internal.isCancelled ||
-              (userCancelToken?.isCancelled ?? false)) {
+          if (internal.isCancelled || (userCancelToken?.isCancelled ?? false)) {
             videoError ??= e;
             return;
           }
@@ -219,10 +238,7 @@ class DashDownloader {
               if (!internal.isCancelled) internal.cancel('audio failed');
               return;
             }
-            logWarn(
-              'Download',
-              'DASH 音轨分片 ${job.index + 1} 失败，将只交付视频轨: $e',
-            );
+            logWarn('Download', 'DASH 音轨分片 ${job.index + 1} 失败，将只交付视频轨: $e');
           } else {
             videoError ??= e;
             final String detail = e is DownloadException ? e.message : '$e';
@@ -238,9 +254,9 @@ class DashDownloader {
         _segmentConcurrency?.call() ?? AppConstants.maxConcurrentSegments;
     // 下限兜到 1：0 会让 Future.wait 空跑，整个任务卡死。
     final int concurrency = limit < 1 ? 1 : (total < limit ? total : limit);
-    await Future.wait<void>(
-      <Future<void>>[for (int i = 0; i < concurrency; i++) worker()],
-    );
+    await Future.wait<void>(<Future<void>>[
+      for (int i = 0; i < concurrency; i++) worker(),
+    ]);
 
     if (videoError != null) throw videoError!;
     if (userCancelToken?.isCancelled ?? false) {
@@ -273,7 +289,9 @@ class DashDownloader {
 
     // 音频失败时进度停在一个不完整的值，补到 100% 免得 UI 一直转圈。
     if (audioFailed || mergeError != null) {
-      onProgress?.call(DashProgress(done: total, total: total, bytes: fetchedBytes));
+      onProgress?.call(
+        DashProgress(done: total, total: total, bytes: fetchedBytes),
+      );
     }
 
     try {
@@ -297,9 +315,7 @@ class DashDownloader {
   _DashTrackPlan _planFor(MpdSelectedTrack track) {
     final MpdSegmentInfo info = track.segment;
     if (info.hasSegmentBase) {
-      throw UnsupportedError(
-        '这个 DASH 流用 SegmentBase 单文件封装，需要按字节区间取片段，暂不支持',
-      );
+      throw UnsupportedError('这个 DASH 流用 SegmentBase 单文件封装，需要按字节区间取片段，暂不支持');
     }
 
     final String? media;
@@ -317,9 +333,7 @@ class DashDownloader {
     } else {
       final MpdSegmentTemplate? template = info.template;
       if (template == null || template.media == null) {
-        throw MpdParseException(
-          'Representation ${track.id} 没有可下载的分片地址',
-        );
+        throw MpdParseException('Representation ${track.id} 没有可下载的分片地址');
       }
       media = template.media;
       init = template.initialization;
@@ -331,9 +345,7 @@ class DashDownloader {
         int number = startNumber;
         for (final MpdTimelineEntry entry in template.timeline) {
           if (entry.r == -1) {
-            throw UnsupportedError(
-              '直播 DASH 流（SegmentTimeline 无界重复）无法完整下载',
-            );
+            throw UnsupportedError('直播 DASH 流（SegmentTimeline 无界重复）无法完整下载');
           }
           final int start = entry.t ?? cursor;
           final int repeats = entry.r < 0 ? 0 : entry.r;
