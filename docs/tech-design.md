@@ -328,7 +328,7 @@ Android 侧「系统无 MP3 编码器，必须靠 FFmpeg `libmp3lame`」的判�
 
 关键取舍：**没有用 Flutter pub 包 `ffmpeg_kit_flutter_new`**，而是在
 `android/app/build.gradle.kts` 里加原生依赖、由 `TranscodeBridge.kt` 实现已有的
-`sniffing_browser/transcoder` MethodChannel。理由：
+`sniffingbrowser/transcoder` MethodChannel。理由：
 
 - `pubspec.yaml` 不变，`pubspec.lock` 不变，桌面端的系统 ffmpeg 链路与 20 项 W1 回归不受影响；
 - 鸿蒙构建时不会因 pub 包缺 ohos 实现而失败（该包只支持 Android/iOS/macOS/Windows/Linux）；
@@ -637,7 +637,7 @@ class MediaClassifier {
 | 类型 | 取图方式 | 说明 |
 | --- | --- | --- |
 | image | 纯 Dart `HttpClient` 重新请求 + 解码降采样到 160px | 复用嗅探时缓存的 Referer / Cookie / UA，缺 Referer 时用 `item.pageUrl` 补 |
-| video（mp4 等直链） | Android：`MediaMetadataRetriever` 抽帧（通道 `sniffing_browser/thumbnailer`）；桌面：本机 ffmpeg `-frames:v 1` 输出 PNG 到管道 | 都只读必要字节，不下载整段视频 |
+| video（mp4 等直链） | Android：`MediaMetadataRetriever` 抽帧（通道 `sniffingbrowser/thumbnailer`）；桌面：本机 ffmpeg `-frames:v 1` 输出 PNG 到管道 | 都只读必要字节，不下载整段视频 |
 | audio / hls / dash / other | 不做 | m3u8 要先下分片再解码，成本高；音频没有封面 |
 
 三条保护，都是被「一屏几十条资源」逼出来的：
@@ -791,7 +791,7 @@ CDN 掐长连接、Wi-Fi 与蜂窝切换也会走到同一条路径。后台冻�
 
 #### 5.3.4 后台保活：下载期间的前台服务（2026-11-20）
 
-`android/app/src/main/kotlin/com/wp/sniffing_browser/DownloadForegroundService.kt`：
+`android/app/src/main/kotlin/com/wp/sniffingbrowser/DownloadForegroundService.kt`：
 
 - 做两件事 —— `startForeground` 把进程钉在前台状态，以及在 `onCreate` 拿
   `PARTIAL_WAKE_LOCK` 阻止熄屏后 CPU 进 Doze。**真正的下载仍在 Dart 侧**，
@@ -810,7 +810,7 @@ CDN 掐长连接、Wi-Fi 与蜂窝切换也会走到同一条路径。后台冻�
   通知跟着闪；
 - 队列 `dispose` 时补一次 stop：`_disposed` 会拦住后续 `_pump`，不补就是一条永远
   不消失的通知；
-- 通道 `sniffing_browser/download_service`（`DownloadServiceBridge.kt`），两个方法
+- 通道 `sniffingbrowser/download_service`（`DownloadServiceBridge.kt`），两个方法
   `start` / `stop`。Android 12+ 从后台启动前台服务会抛异常，此时回 `unavailable`，
   Dart 侧只记一条警告，不阻断下载；
 - Manifest 声明 `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_DATA_SYNC`（API 34+ 必需）
@@ -1103,7 +1103,7 @@ TS 的处理见 5.5.4。
 
 API 29+ 使用 MediaStore 的 `IS_PENDING` 机制，**无需任何存储权限**。
 实际实现文件名是 `MediaExporterHandler.kt`，在 `MainActivity.configureFlutterEngine()`
-里注册到 `sniffing_browser/media_exporter`。相比下面的示意代码，实际版还做了：
+里注册到 `sniffingbrowser/media_exporter`。相比下面的示意代码，实际版还做了：
 按 `target` 分派 Images / Video / Audio / Downloads 四个集合、用
 `MimeTypeMap` 纠正 Dart 传来的非标准 mime、写入失败时删除 pending 条目、
 以及 API ≤ 28 的公共目录 + `MediaScannerConnection` 兜底。
@@ -1219,7 +1219,7 @@ async function exportToGallery(
 class MediaExporter {
   const MediaExporter._();
   static const MethodChannel _channel =
-      MethodChannel('sniffing_browser/media_exporter');
+      MethodChannel('sniffingbrowser/media_exporter');
 
   static Future<ExportResult> export(String localPath, MediaType type);
   static ExportTarget targetFor(MediaType type);
@@ -1234,8 +1234,8 @@ enum ExportStatus { notExported, done, unsupported, notImplemented, failed }
 `invokeMethod('exportMedia')`，由 `MediaExporterHandler.kt` 返回
 `{status: done, uri: ...}` / `{status: failed, message: ...}`，Dart 侧映射成
 `ExportResult`。鸿蒙仍无原生实现，会走 `MissingPluginException` → `notImplemented`。
-MethodChannel 名是 `sniffing_browser/media_exporter`（早期草案写的
-`sniffing_browser/exporter` 不对）。
+MethodChannel 名是 `sniffingbrowser/media_exporter`（早期草案写的
+`sniffingbrowser/exporter` 不对）。
 
 同一个 channel 还有三个方法（2026-11-13）：
 
@@ -1262,7 +1262,7 @@ Android 7+ 把 `file://` 交给外部应用会抛 `FileUriExposedException`，�
 
 #### 5.5.3a Android 转码桥接（2026-11-12 新增）
 
-`TranscodeBridge.kt` 注册 `sniffing_browser/transcoder`，三个方法：
+`TranscodeBridge.kt` 注册 `sniffingbrowser/transcoder`，三个方法：
 
 | 方法 | 行为 |
 | --- | --- |
@@ -1887,7 +1887,7 @@ class M3u8ByteRange { final int length; final int? offset; }
 
 ```
 sniffing-browser/
-├── android/app/src/main/kotlin/com/wp/sniffing_browser/
+├── android/app/src/main/kotlin/com/wp/sniffingbrowser/
 │   ├── MainActivity.kt             # 注册四个 MethodChannel
 │   ├── MediaExporterHandler.kt     # MediaStore 导出（IS_PENDING）
 │   ├── TranscodeBridge.kt          # FFmpegKit 转码、进度、取消、TS→MP4 回退
@@ -2265,8 +2265,8 @@ A1 → A3 → A4 → A5 → A6 顺序执行完毕 —— 自写首页正常显�
   release 包不再因缺权限断网；debug / profile manifest 原有声明保留。
 - 同一份 manifest 也没有 `android:usesCleartextTraffic="true"`，Android 9+ 默认禁止明文 HTTP。
   A1 / A4 若用 `http://` 测试页会加载失败，优先选 `https://` 站点；本期不改 manifest。
-- `MainActivity.kt` 已注册两个 MethodChannel：`sniffing_browser/media_exporter`
-  （`MediaExporterHandler.kt`）与 `sniffing_browser/transcoder`（`TranscodeBridge.kt`）。
+- `MainActivity.kt` 已注册两个 MethodChannel：`sniffingbrowser/media_exporter`
+  （`MediaExporterHandler.kt`）与 `sniffingbrowser/transcoder`（`TranscodeBridge.kt`）。
   Android 上导出与转码入口已放开；鸿蒙无原生实现，入口仍隐藏。
 - 用户实际在 **Android USB 真机**上跑（不是模拟器），A2 的 85 / 83 即真机数据。
 - `android/app/build.gradle.kts` 加了 ffmpeg-kit AAR 后，debug APK 体积明显上升；

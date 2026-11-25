@@ -140,7 +140,7 @@ RUN_E2E=1 flutter test test/transcode_e2e_test.dart
 日志文件位置（下载目录下的 `SniffingBrowser/logs/app.log`）：
 
 - Windows / 桌面：`下载/SniffingBrowser/logs/app.log`
-- Android：`/sdcard/Android/data/com.wp.sniffing_browser/files/SniffingBrowser/logs/app.log`
+- Android：`/sdcard/Android/data/com.wp.sniffingbrowser/files/SniffingBrowser/logs/app.log`
 - HarmonyOS：应用 `filesDir/SniffingBrowser/logs/app.log`
 
 日志页的「导出为 txt」不看内存那 800 条，而是把 `app.log.1` + `app.log` 整段
@@ -174,10 +174,10 @@ RUN_E2E=1 flutter test test/transcode_e2e_test.dart
 
 | 通道 | 实现 | 能力 |
 | --- | --- | --- |
-| `sniffing_browser/media_exporter` | `MediaExporterHandler.kt` | API 29+ 走 MediaStore + `IS_PENDING` 写入相册 / 音乐 / 下载目录，无需存储权限；API ≤ 28 走公共目录 + 媒体扫描 |
-| `sniffing_browser/transcoder` | `TranscodeBridge.kt` | FFmpegKit 执行 TS→MP4、抽 MP3、DASH 音视频合并，带进度与取消；TS→MP4 失败时自动回退「视频复制 + 音频 AAC 重编」 |
-| `sniffing_browser/thumbnailer` | `ThumbnailBridge.kt` | `MediaMetadataRetriever` 抽视频首帧，串行执行避免并发解码 |
-| `sniffing_browser/download_service` | `DownloadServiceBridge.kt` | 下载前台服务的通知栏进度与全局暂停 / 继续 / 取消反调 |
+| `sniffingbrowser/media_exporter` | `MediaExporterHandler.kt` | API 29+ 走 MediaStore + `IS_PENDING` 写入相册 / 音乐 / 下载目录，无需存储权限；API ≤ 28 走公共目录 + 媒体扫描 |
+| `sniffingbrowser/transcoder` | `TranscodeBridge.kt` | FFmpegKit 执行 TS→MP4、抽 MP3、DASH 音视频合并，带进度与取消；TS→MP4 失败时自动回退「视频复制 + 音频 AAC 重编」 |
+| `sniffingbrowser/thumbnailer` | `ThumbnailBridge.kt` | `MediaMetadataRetriever` 抽视频首帧，串行执行避免并发解码 |
+| `sniffingbrowser/download_service` | `DownloadServiceBridge.kt` | 下载前台服务的通知栏进度与全局暂停 / 继续 / 取消反调 |
 
 转码依赖写在 `android/app/build.gradle.kts`：
 `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9`（LGPL、FFmpeg 8.1.2、
