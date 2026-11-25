@@ -13,7 +13,7 @@ import 'package:sniffingbrowser/features/transcoder/domain/transcode_job.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const MethodChannel channel = MethodChannel('sniffing_browser/transcoder');
+  const MethodChannel channel = MethodChannel('sniffingbrowser/transcoder');
   final TestDefaultBinaryMessenger messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 

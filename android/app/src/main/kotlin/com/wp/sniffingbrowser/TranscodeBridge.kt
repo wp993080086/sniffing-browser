@@ -12,7 +12,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 /**
- * sniffing_browser/transcoder 的 Android 实现。
+ * sniffingbrowser/transcoder 的 Android 实现。
  *
  * 契约：startTranscode 的 result 会一直挂起，直到 FFmpegKit 的 session 结束才回复，
  * 所以 Dart 侧 `await invokeMethod('startTranscode')` 天然等于「等这一路转码跑完」。

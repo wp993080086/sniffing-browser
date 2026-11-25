@@ -26,9 +26,9 @@ class MainActivity : FlutterActivity() {
     }
 
     private companion object {
-        const val MEDIA_EXPORTER_CHANNEL = "sniffing_browser/media_exporter"
-        const val TRANSCODER_CHANNEL = "sniffing_browser/transcoder"
-        const val THUMBNAILER_CHANNEL = "sniffing_browser/thumbnailer"
-        const val DOWNLOAD_SERVICE_CHANNEL = "sniffing_browser/download_service"
+        const val MEDIA_EXPORTER_CHANNEL = "sniffingbrowser/media_exporter"
+        const val TRANSCODER_CHANNEL = "sniffingbrowser/transcoder"
+        const val THUMBNAILER_CHANNEL = "sniffingbrowser/thumbnailer"
+        const val DOWNLOAD_SERVICE_CHANNEL = "sniffingbrowser/download_service"
     }
 }

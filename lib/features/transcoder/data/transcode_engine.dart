@@ -85,7 +85,7 @@ abstract class TranscodeEngine {
 /// 进度则由原生通过同一个 channel 反向调用 `onProgress` 推过来。
 class NativeTranscodeEngine extends TranscodeEngine {
   static const MethodChannel _channel = MethodChannel(
-    'sniffing_browser/transcoder',
+    'sniffingbrowser/transcoder',
   );
 
   /// 当前正在跑的那一路的进度回调。队列严格串行，同一时刻只会有一个。

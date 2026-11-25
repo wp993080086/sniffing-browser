@@ -67,7 +67,7 @@ class MediaExporter {
   const MediaExporter._();
 
   static const MethodChannel _channel = MethodChannel(
-    'sniffing_browser/media_exporter',
+    'sniffingbrowser/media_exporter',
   );
 
   /// 音频不进相册（两端相册都只认图片和视频），所以单独一个目标。

@@ -66,7 +66,7 @@ class DownloadForegroundService : Service() {
         val manager = getSystemService(Context.POWER_SERVICE) as PowerManager
         val lock = manager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
-            "sniffing_browser:download",
+            "sniffingbrowser:download",
         )
         try {
             // 不设超时：一个几百 MB 的视频可能要下很久，中途没法从 Dart 侧续期。
@@ -213,7 +213,7 @@ class DownloadForegroundService : Service() {
         private const val TAG = "DownloadFgService"
         private const val CHANNEL_ID = "download"
         private const val NOTIFICATION_ID = 1001
-        private const val ACTION_NOTIFICATION = "sniffing_browser.download.action"
+        private const val ACTION_NOTIFICATION = "sniffingbrowser.download.action"
         private const val EXTRA_ACTION = "method"
 
         /** 当前存活的 service 实例，桥接收到 update 时转调。 */

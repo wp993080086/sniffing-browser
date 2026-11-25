@@ -13,7 +13,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * sniffing_browser/thumbnailer 的 Android 实现：从网络视频里抽第一帧当封面。
+ * sniffingbrowser/thumbnailer 的 Android 实现：从网络视频里抽第一帧当封面。
  *
  * 用 MediaMetadataRetriever 而不是 FFmpegKit：抽一帧只需要读 moov 和附近几个
  * 关键帧，MediaMetadataRetriever 内部按需 range 请求，比拉流快一个量级，

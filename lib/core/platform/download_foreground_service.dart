@@ -14,7 +14,7 @@ class DownloadForegroundService {
   const DownloadForegroundService._();
 
   static const MethodChannel _channel = MethodChannel(
-    'sniffing_browser/download_service',
+    'sniffingbrowser/download_service',
   );
 
   /// 是否已经挂着。队列每轮调度都会调 [start]，重复下发会让系统反复重建通知。

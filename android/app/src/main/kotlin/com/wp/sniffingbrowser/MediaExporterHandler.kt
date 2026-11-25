@@ -19,7 +19,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 /**
- * sniffing_browser/media_exporter 的 Android 实现。
+ * sniffingbrowser/media_exporter 的 Android 实现。
  *
  * 下载产物落在应用私有目录，这里把它复制进系统媒体库，让相册 / 音乐 App 能看见。
  * API 29+ 用 MediaStore + IS_PENDING，不申请任何存储权限；API <= 28 退回公共目录

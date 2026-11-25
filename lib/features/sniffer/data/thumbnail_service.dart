@@ -26,7 +26,7 @@ class ThumbnailService {
   const ThumbnailService._();
 
   static const MethodChannel _channel = MethodChannel(
-    'sniffing_browser/thumbnailer',
+    'sniffingbrowser/thumbnailer',
   );
 
   /// 单张原图的读取上限。超过了宁可显示类型图标，也不为一张缩略图
