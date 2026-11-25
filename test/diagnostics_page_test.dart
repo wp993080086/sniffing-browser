@@ -2,11 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/logging/app_log.dart';
-import 'package:sniffing_browser/core/platform/storage_paths.dart';
-import 'package:sniffing_browser/features/diagnostics/presentation/diagnostics_page.dart';
-import 'package:sniffing_browser/features/diagnostics/presentation/log_exports_page.dart';
-import 'package:sniffing_browser/features/diagnostics/presentation/log_view_page.dart';
+import 'package:sniffingbrowser/core/logging/app_log.dart';
+import 'package:sniffingbrowser/core/platform/storage_paths.dart';
+import 'package:sniffingbrowser/features/diagnostics/presentation/diagnostics_page.dart';
+import 'package:sniffingbrowser/features/diagnostics/presentation/log_exports_page.dart';
+import 'package:sniffingbrowser/features/diagnostics/presentation/log_view_page.dart';
 
 /// 日志页的关键行为：条数太多时能按关键字和级别收敛到想看的那几条。
 void main() {

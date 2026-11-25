@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/transcoder/data/transcode_engine.dart';
-import 'package:sniffing_browser/features/transcoder/domain/transcode_job.dart';
+import 'package:sniffingbrowser/features/transcoder/data/transcode_engine.dart';
+import 'package:sniffingbrowser/features/transcoder/domain/transcode_job.dart';
 
 /// Android 原生转码桥接的协议测试。
 ///

@@ -4,8 +4,8 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/browser_headers.dart';
-import 'package:sniffing_browser/features/downloader/data/file_downloader.dart';
+import 'package:sniffingbrowser/core/platform/browser_headers.dart';
+import 'package:sniffingbrowser/features/downloader/data/file_downloader.dart';
 
 /// 模拟 Cloudflare 的 Browser Integrity Check：只要 UA 声称自己是浏览器
 /// 就 403，中性 UA 放行。真机上就是这么分的。

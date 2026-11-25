@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/transcoder/data/transcode_engine.dart';
-import 'package:sniffing_browser/features/transcoder/data/transcode_queue.dart';
-import 'package:sniffing_browser/features/transcoder/data/transcode_store.dart';
-import 'package:sniffing_browser/features/transcoder/domain/transcode_job.dart';
+import 'package:sniffingbrowser/features/transcoder/data/transcode_engine.dart';
+import 'package:sniffingbrowser/features/transcoder/data/transcode_queue.dart';
+import 'package:sniffingbrowser/features/transcoder/data/transcode_store.dart';
+import 'package:sniffingbrowser/features/transcoder/domain/transcode_job.dart';
 
 class _FakeEngine extends TranscodeEngine {
   int runs = 0;

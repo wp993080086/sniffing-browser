@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/storage_paths.dart';
-import 'package:sniffing_browser/features/diagnostics/data/log_exporter.dart';
-import 'package:sniffing_browser/features/diagnostics/presentation/log_exports_page.dart';
-import 'package:sniffing_browser/features/diagnostics/presentation/log_view_page.dart';
+import 'package:sniffingbrowser/core/platform/storage_paths.dart';
+import 'package:sniffingbrowser/features/diagnostics/data/log_exporter.dart';
+import 'package:sniffingbrowser/features/diagnostics/presentation/log_exports_page.dart';
+import 'package:sniffingbrowser/features/diagnostics/presentation/log_view_page.dart';
 
 /// 导出记录页：让「上次导出的那份」还能翻回来，不用为了排同一次故障再导一遍。
 void main() {

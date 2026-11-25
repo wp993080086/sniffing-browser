@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/resolver/domain/resolved_batch.dart';
-import 'package:sniffing_browser/features/resolver/domain/resolved_video.dart';
+import 'package:sniffingbrowser/features/resolver/domain/resolved_batch.dart';
+import 'package:sniffingbrowser/features/resolver/domain/resolved_video.dart';
 
 ResolvedVideo _video(String id, {String? url}) => ResolvedVideo(
   url: url ?? 'https://v.douyin.com/$id.mp4',

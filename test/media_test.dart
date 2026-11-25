@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/downloader/data/hls/m3u8_models.dart';
-import 'package:sniffing_browser/features/downloader/data/hls/m3u8_parser.dart';
-import 'package:sniffing_browser/features/sniffer/data/sniffer_service.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_classifier.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
-import 'package:sniffing_browser/features/transcoder/domain/transcode_job.dart';
+import 'package:sniffingbrowser/features/downloader/data/hls/m3u8_models.dart';
+import 'package:sniffingbrowser/features/downloader/data/hls/m3u8_parser.dart';
+import 'package:sniffingbrowser/features/sniffer/data/sniffer_service.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_classifier.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/features/transcoder/domain/transcode_job.dart';
 
 void main() {
   group('MediaClassifier', () {

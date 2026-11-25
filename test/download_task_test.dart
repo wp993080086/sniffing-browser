@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_status.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_task.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_status.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_task.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
 
 DownloadTask streamTask() => DownloadTask(
   id: 't1',

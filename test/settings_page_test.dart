@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/storage_paths.dart';
-import 'package:sniffing_browser/features/diagnostics/presentation/diagnostics_page.dart';
-import 'package:sniffing_browser/features/settings/presentation/settings_page.dart';
+import 'package:sniffingbrowser/core/platform/storage_paths.dart';
+import 'package:sniffingbrowser/features/diagnostics/presentation/diagnostics_page.dart';
+import 'package:sniffingbrowser/features/settings/presentation/settings_page.dart';
 
 void main() {
   late Directory root;

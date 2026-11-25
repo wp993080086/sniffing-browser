@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:sniffing_browser/core/platform/storage_paths.dart';
-import 'package:sniffing_browser/features/diagnostics/data/log_exporter.dart';
+import 'package:sniffingbrowser/core/platform/storage_paths.dart';
+import 'package:sniffingbrowser/features/diagnostics/data/log_exporter.dart';
 
 void main() {
   late Directory root;

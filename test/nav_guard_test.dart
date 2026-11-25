@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/browser/data/nav_guard.dart';
+import 'package:sniffingbrowser/features/browser/data/nav_guard.dart';
 
 /// 判定用的时间基准。真实时间不影响结果，只关心差值。
 const int _now = 1700000000000;

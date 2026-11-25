@@ -18,7 +18,7 @@ class AppConstants {
   /// 用环境变量指定，方便用命令行复现某个页面的问题：
   ///
   /// ```bash
-  /// SNIFF_HOME_URL=https://example.com ./sniffing_browser.exe
+  /// SNIFF_HOME_URL=https://example.com ./sniffingbrowser.exe
   /// ```
   static String? get startupUrl {
     try {

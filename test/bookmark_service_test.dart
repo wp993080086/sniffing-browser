@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:sniffing_browser/features/browser/data/bookmark_service.dart';
-import 'package:sniffing_browser/features/browser/data/bookmark_store.dart';
+import 'package:sniffingbrowser/features/browser/data/bookmark_service.dart';
+import 'package:sniffingbrowser/features/browser/data/bookmark_store.dart';
 
 void main() {
   late Directory dir;

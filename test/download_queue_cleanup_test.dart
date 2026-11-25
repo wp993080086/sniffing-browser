@@ -1,12 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/storage_paths.dart';
-import 'package:sniffing_browser/features/downloader/data/download_queue.dart';
-import 'package:sniffing_browser/features/downloader/data/download_store.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_status.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_task.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/core/platform/storage_paths.dart';
+import 'package:sniffingbrowser/features/downloader/data/download_queue.dart';
+import 'package:sniffingbrowser/features/downloader/data/download_store.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_status.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_task.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
 
 /// 删记录时要连带清掉分片临时目录。
 ///

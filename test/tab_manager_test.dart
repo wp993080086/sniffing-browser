@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/browser/providers/browser_tab.dart';
-import 'package:sniffing_browser/features/browser/providers/tab_manager.dart';
+import 'package:sniffingbrowser/features/browser/providers/browser_tab.dart';
+import 'package:sniffingbrowser/features/browser/providers/tab_manager.dart';
 
 void main() {
   group('常驻起始页', () {

@@ -3,13 +3,13 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/storage_paths.dart';
-import 'package:sniffing_browser/features/downloader/data/download_queue.dart';
-import 'package:sniffing_browser/features/downloader/data/file_downloader.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_status.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_task.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_item.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/core/platform/storage_paths.dart';
+import 'package:sniffingbrowser/features/downloader/data/download_queue.dart';
+import 'package:sniffingbrowser/features/downloader/data/file_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_status.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_task.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_item.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
 
 /// 每次 fetch 都拖一段时间，给测试留出「下载中」的窗口去点暂停。
 class _SlowAdapter implements HttpClientAdapter {

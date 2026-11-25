@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/downloader/data/file_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/data/file_downloader.dart';
 
 void main() {
   test('只有 CookieManager 那份时原样搬过来', () {

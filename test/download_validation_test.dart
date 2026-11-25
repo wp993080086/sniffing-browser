@@ -10,11 +10,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/downloader/data/file_downloader.dart';
-import 'package:sniffing_browser/features/downloader/data/hls/hls_downloader.dart';
-import 'package:sniffing_browser/features/downloader/data/media_validator.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_classifier.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/features/downloader/data/file_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/data/hls/hls_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/data/media_validator.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_classifier.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
 
 const String _fakePage =
     '<!doctype html><html><head><title>首页</title></head>'

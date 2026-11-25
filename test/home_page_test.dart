@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/app/providers.dart';
-import 'package:sniffing_browser/features/browser/data/bookmark_service.dart';
-import 'package:sniffing_browser/features/browser/data/history_service.dart';
-import 'package:sniffing_browser/features/browser/presentation/bookmark_page.dart';
-import 'package:sniffing_browser/features/browser/presentation/history_page.dart';
-import 'package:sniffing_browser/features/browser/presentation/home_page.dart';
+import 'package:sniffingbrowser/app/providers.dart';
+import 'package:sniffingbrowser/features/browser/data/bookmark_service.dart';
+import 'package:sniffingbrowser/features/browser/data/history_service.dart';
+import 'package:sniffingbrowser/features/browser/presentation/bookmark_page.dart';
+import 'package:sniffingbrowser/features/browser/presentation/history_page.dart';
+import 'package:sniffingbrowser/features/browser/presentation/home_page.dart';
 
 /// 用纯内存的 service 覆盖全局 provider。
 ///

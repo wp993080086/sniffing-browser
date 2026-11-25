@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/proxy_rule.dart';
+import 'package:sniffingbrowser/core/platform/proxy_rule.dart';
 
 void main() {
   group('ProxyRule', () {

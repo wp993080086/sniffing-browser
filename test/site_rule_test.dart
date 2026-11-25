@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/settings/data/site_rule.dart';
+import 'package:sniffingbrowser/features/settings/data/site_rule.dart';
 
 void main() {
   group('域名匹配', () {

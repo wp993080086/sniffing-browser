@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/sniffer/presentation/fab_position.dart';
-import 'package:sniffing_browser/features/sniffer/presentation/sniff_fab.dart';
+import 'package:sniffingbrowser/features/sniffer/presentation/fab_position.dart';
+import 'package:sniffingbrowser/features/sniffer/presentation/sniff_fab.dart';
 
 const Size _screen = Size(390, 700);
 

@@ -3,11 +3,11 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/downloader/data/dash/mpd_models.dart';
-import 'package:sniffing_browser/features/downloader/data/dash/mpd_parser.dart';
-import 'package:sniffing_browser/features/downloader/data/file_downloader.dart';
-import 'package:sniffing_browser/features/downloader/data/hls/hls_downloader.dart';
-import 'package:sniffing_browser/features/downloader/data/hls/m3u8_models.dart';
+import 'package:sniffingbrowser/features/downloader/data/dash/mpd_models.dart';
+import 'package:sniffingbrowser/features/downloader/data/dash/mpd_parser.dart';
+import 'package:sniffingbrowser/features/downloader/data/file_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/data/hls/hls_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/data/hls/m3u8_models.dart';
 
 /// 下载前选轨：把「能列出什么」和「选了是不是真的按它下」钉住。
 const String _mpd = '''

@@ -8,9 +8,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/downloader/data/file_downloader.dart';
-import 'package:sniffing_browser/features/transcoder/data/system_ffmpeg_engine.dart';
-import 'package:sniffing_browser/features/transcoder/domain/transcode_job.dart';
+import 'package:sniffingbrowser/features/downloader/data/file_downloader.dart';
+import 'package:sniffingbrowser/features/transcoder/data/system_ffmpeg_engine.dart';
+import 'package:sniffingbrowser/features/transcoder/domain/transcode_job.dart';
 
 const String _sampleTs =
     'https://test-streams.mux.dev/x36xhzz/url_2/url_526/193039199_mp4_h264_aac_ld_7.ts';

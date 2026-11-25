@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/browser_headers.dart';
+import 'package:sniffingbrowser/core/platform/browser_headers.dart';
 
 void main() {
   group('withBrowserHeaders', () {

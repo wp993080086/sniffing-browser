@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_item.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
-import 'package:sniffing_browser/features/sniffer/presentation/media_preview_page.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_item.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/features/sniffer/presentation/media_preview_page.dart';
 
 /// 预览页只测「不建播放器」的那条分支：图片和音视频要真实平台视图，
 /// widget 测试里跑不起来，也不该为了测它去 mock 整个 WebView。

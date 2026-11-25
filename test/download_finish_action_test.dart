@@ -2,18 +2,18 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/storage_paths.dart';
-import 'package:sniffing_browser/features/downloader/data/download_queue.dart';
-import 'package:sniffing_browser/features/downloader/data/download_store.dart';
-import 'package:sniffing_browser/features/downloader/data/file_downloader.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_status.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_task.dart';
-import 'package:sniffing_browser/features/settings/data/app_settings.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_item.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
-import 'package:sniffing_browser/features/transcoder/data/transcode_engine.dart';
-import 'package:sniffing_browser/features/transcoder/data/transcode_queue.dart';
-import 'package:sniffing_browser/features/transcoder/domain/transcode_job.dart';
+import 'package:sniffingbrowser/core/platform/storage_paths.dart';
+import 'package:sniffingbrowser/features/downloader/data/download_queue.dart';
+import 'package:sniffingbrowser/features/downloader/data/download_store.dart';
+import 'package:sniffingbrowser/features/downloader/data/file_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_status.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_task.dart';
+import 'package:sniffingbrowser/features/settings/data/app_settings.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_item.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/features/transcoder/data/transcode_engine.dart';
+import 'package:sniffingbrowser/features/transcoder/data/transcode_queue.dart';
+import 'package:sniffingbrowser/features/transcoder/domain/transcode_job.dart';
 
 /// 本地落盘的假下载器：不联网，直接写出目标文件。
 class _FakeDownloader extends FileDownloader {

@@ -1,4 +1,4 @@
-package com.wp.sniffing_browser
+package com.wp.sniffingbrowser
 
 import android.annotation.SuppressLint
 import android.app.Activity

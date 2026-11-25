@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/resolver/data/douyin_hook.dart';
-import 'package:sniffing_browser/features/resolver/domain/resolved_video.dart';
+import 'package:sniffingbrowser/features/resolver/data/douyin_hook.dart';
+import 'package:sniffingbrowser/features/resolver/domain/resolved_video.dart';
 
 void main() {
   group('分享文案里挑链接', () {

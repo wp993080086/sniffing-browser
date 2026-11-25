@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/utils/site.dart';
+import 'package:sniffingbrowser/core/utils/site.dart';
 
 void main() {
   group('isSameSite', () {

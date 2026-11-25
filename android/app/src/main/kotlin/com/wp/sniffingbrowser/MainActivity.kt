@@ -1,4 +1,4 @@
-package com.wp.sniffing_browser
+package com.wp.sniffingbrowser
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine

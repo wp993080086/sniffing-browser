@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/media_exporter.dart';
-import 'package:sniffing_browser/features/downloader/data/download_queue.dart';
-import 'package:sniffing_browser/features/downloader/data/download_store.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_status.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_task.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/core/platform/media_exporter.dart';
+import 'package:sniffingbrowser/features/downloader/data/download_queue.dart';
+import 'package:sniffingbrowser/features/downloader/data/download_store.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_status.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_task.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
 
 void main() {
   late Directory dir;

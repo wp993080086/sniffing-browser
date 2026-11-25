@@ -18,8 +18,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:pointycastle/export.dart';
-import 'package:sniffing_browser/features/downloader/data/file_downloader.dart';
-import 'package:sniffing_browser/features/downloader/data/hls/hls_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/data/file_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/data/hls/hls_downloader.dart';
 
 const String _tsBase = 'https://test-streams.mux.dev/x36xhzz/url_2';
 

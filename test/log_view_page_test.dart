@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:sniffing_browser/features/diagnostics/presentation/log_view_page.dart';
+import 'package:sniffingbrowser/features/diagnostics/presentation/log_view_page.dart';
 
 /// 预览页解决的是「导出了却看不到」：内容要在应用内铺得出来、能复制、能分享。
 void main() {

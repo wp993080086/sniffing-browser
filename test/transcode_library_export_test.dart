@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/media_exporter.dart';
-import 'package:sniffing_browser/core/platform/storage_paths.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
-import 'package:sniffing_browser/features/transcoder/data/transcode_engine.dart';
-import 'package:sniffing_browser/features/transcoder/data/transcode_queue.dart';
-import 'package:sniffing_browser/features/transcoder/domain/transcode_job.dart';
+import 'package:sniffingbrowser/core/platform/media_exporter.dart';
+import 'package:sniffingbrowser/core/platform/storage_paths.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/features/transcoder/data/transcode_engine.dart';
+import 'package:sniffingbrowser/features/transcoder/data/transcode_queue.dart';
+import 'package:sniffingbrowser/features/transcoder/domain/transcode_job.dart';
 
 /// 只负责「产出文件」的假引擎，不碰真实 ffmpeg。
 class _FakeEngine extends TranscodeEngine {

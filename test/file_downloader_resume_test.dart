@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/downloader/data/file_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/data/file_downloader.dart';
 
 /// 第一次请求模拟「响应体下到一半连接断开」，之后的请求正常工作。
 /// [ignoreRange] 为真时后端不认 Range，一律回 200 全量。

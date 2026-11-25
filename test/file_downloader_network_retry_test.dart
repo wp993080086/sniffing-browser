@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/downloader/data/file_downloader.dart';
+import 'package:sniffingbrowser/features/downloader/data/file_downloader.dart';
 
 /// 前 [failTimes] 次在 TLS 握手阶段断开，之后正常返回全量。
 ///

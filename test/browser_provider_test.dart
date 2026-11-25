@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/browser/providers/browser_provider.dart';
+import 'package:sniffingbrowser/features/browser/providers/browser_provider.dart';
 
 void main() {
   late BrowserController browser;

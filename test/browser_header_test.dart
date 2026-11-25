@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/browser/presentation/browser_header.dart';
+import 'package:sniffingbrowser/features/browser/presentation/browser_header.dart';
 
 Future<void> _pumpHeader(WidgetTester tester, Size size) async {
   tester.view.physicalSize = size;

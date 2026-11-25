@@ -1,12 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/storage_paths.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_status.dart';
-import 'package:sniffing_browser/features/downloader/domain/download_task.dart';
-import 'package:sniffing_browser/features/settings/data/storage_manager.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
-import 'package:sniffing_browser/features/transcoder/domain/transcode_job.dart';
+import 'package:sniffingbrowser/core/platform/storage_paths.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_status.dart';
+import 'package:sniffingbrowser/features/downloader/domain/download_task.dart';
+import 'package:sniffingbrowser/features/settings/data/storage_manager.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/features/transcoder/domain/transcode_job.dart';
 
 DownloadTask _task(
   String id, {

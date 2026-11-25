@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:sniffing_browser/core/constants/app_constants.dart';
-import 'package:sniffing_browser/core/logging/app_log.dart';
-import 'package:sniffing_browser/core/platform/platform_info.dart';
-import 'package:sniffing_browser/core/platform/storage_paths.dart';
+import 'package:sniffingbrowser/core/constants/app_constants.dart';
+import 'package:sniffingbrowser/core/logging/app_log.dart';
+import 'package:sniffingbrowser/core/platform/platform_info.dart';
+import 'package:sniffingbrowser/core/platform/storage_paths.dart';
 
 /// 日志导出的核心诉求：崩溃重开之后，上一次会话的现场还在导出的 txt 里。
 void main() {

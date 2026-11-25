@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/platform/webview_cookies.dart';
+import 'package:sniffingbrowser/core/platform/webview_cookies.dart';
 
 void main() {
   group('Cookie 展示摘要', () {

@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/constants/app_constants.dart';
+import 'package:sniffingbrowser/core/constants/app_constants.dart';
 
 void main() {
   test('AppConstants.version 与 pubspec.yaml 的 version 一致', () {

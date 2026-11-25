@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/sniffer/data/thumbnail_cache.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_item.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/features/sniffer/data/thumbnail_cache.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_item.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
 
 MediaItem _item(String id, {MediaType type = MediaType.image}) => MediaItem(
   id: id,

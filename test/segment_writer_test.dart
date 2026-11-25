@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/downloader/data/segment_writer.dart';
+import 'package:sniffingbrowser/features/downloader/data/segment_writer.dart';
 
 void main() {
   late Directory dir;

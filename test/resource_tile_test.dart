@@ -4,11 +4,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/app/providers.dart';
-import 'package:sniffing_browser/features/sniffer/data/thumbnail_cache.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_item.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
-import 'package:sniffing_browser/features/sniffer/presentation/resource_tile.dart';
+import 'package:sniffingbrowser/app/providers.dart';
+import 'package:sniffingbrowser/features/sniffer/data/thumbnail_cache.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_item.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/features/sniffer/presentation/resource_tile.dart';
 
 MediaItem _item(String id, {MediaType type = MediaType.image}) => MediaItem(
   id: id,

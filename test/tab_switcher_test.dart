@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/app/providers.dart';
-import 'package:sniffing_browser/features/browser/presentation/tab_switcher.dart';
-import 'package:sniffing_browser/features/browser/providers/browser_tab.dart';
-import 'package:sniffing_browser/features/browser/providers/tab_manager.dart';
+import 'package:sniffingbrowser/app/providers.dart';
+import 'package:sniffingbrowser/features/browser/presentation/tab_switcher.dart';
+import 'package:sniffingbrowser/features/browser/providers/browser_tab.dart';
+import 'package:sniffingbrowser/features/browser/providers/tab_manager.dart';
 
 Future<void> _pumpEntry(WidgetTester tester, TabManager tabs) async {
   await tester.pumpWidget(

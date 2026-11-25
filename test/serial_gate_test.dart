@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/core/utils/serial_gate.dart';
+import 'package:sniffingbrowser/core/utils/serial_gate.dart';
 
 void main() {
   test('任务按提交顺序串行执行', () async {

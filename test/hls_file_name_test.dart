@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sniffing_browser/features/downloader/data/download_queue.dart';
-import 'package:sniffing_browser/features/sniffer/domain/media_type.dart';
+import 'package:sniffingbrowser/features/downloader/data/download_queue.dart';
+import 'package:sniffingbrowser/features/sniffer/domain/media_type.dart';
 
 void main() {
   group('HLS 文件名带来源页标题', () {
