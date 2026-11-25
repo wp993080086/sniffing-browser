@@ -18,10 +18,8 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# VS Code：个人设置与调试配置不共享
+.vscode
 
 # Flutter/Dart/Pub related
 **/doc/api/
@@ -65,6 +63,3 @@ crash_*.dmp
 
 # WorkBuddy 本地会话与记忆，不入库
 .workbuddy/
-
-#
-.vscode
