@@ -49,7 +49,7 @@
 .q-btn:active { color:var(--brand-6); }
 .tip {
   display:none; position:absolute; left:0; top:calc(100% + 8px); z-index:5;
-  width:max-content; max-width:250px; padding:7px 10px;
+  width:200px; padding:8px 10px;
   background:rgba(28,30,43,.92); border-radius:var(--radius-sm);
   font-size:11px; line-height:1.6; color:var(--text-4);
   box-shadow:var(--shadow-2);
@@ -70,15 +70,9 @@
   padding:var(--sp-6) var(--sp-6) var(--sp-3); animation:pop var(--dur-base) var(--ease-spring) backwards;
 }
 @keyframes pop { from { transform:scale(.92); opacity:0; } to { transform:scale(1); opacity:1; } }
-.dialog h3 { font-size:16px; font-weight:600; margin-bottom:8px; text-align:center; position:relative; }
-.dialog .dlg-close {
-  position:absolute; right:0; top:50%; transform:translateY(-50%);
-  width:30px; height:30px; border:none; background:transparent; cursor:pointer;
-  color:var(--text-3); border-radius:var(--radius-sm);
-  display:flex; align-items:center; justify-content:center;
-}
-.dialog .dlg-close svg { width:18px; height:18px; }
-.dialog .dlg-close:active { background:var(--fill-2); }
+.dialog h3 { font-size:16px; font-weight:600; margin-bottom:8px; text-align:center; }
+/* 底部关闭按钮（复用 base 的品牌描边按钮） */
+.dialog .dlg-cancel { margin-top:var(--sp-2); width:100%; }
 .dlg-item {
   display:flex; align-items:center; gap:10px; padding:14px 6px; font-size:14px; color:var(--text-1);
   cursor:pointer; border-radius:var(--radius-sm); position:relative;
@@ -107,7 +101,6 @@
   <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"/></symbol>
   <symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .8c0 1.7-2.5 2.1-2.5 3.4"/><path d="M12 16.6v.1"/></symbol>
-  <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></symbol>
 </defs></svg>
 
 <div class="page-title">移动端设计稿 · <b>设置</b> · 布局对照「设置.jpg / 设置-下载完成后的选项弹窗.jpg」</div>
@@ -246,11 +239,12 @@
       <!-- 弹窗 -->
       <div class="dlg-mask">
         <div class="dialog">
-          <h3>下载完成后<button class="dlg-close" aria-label="关闭"><svg><use href="#i-close"/></svg></button></h3>
+          <h3>下载完成后</h3>
           <div class="dlg-item">不做任何操作<svg><use href="#i-check"/></svg></div>
           <div class="dlg-item">导出到系统媒体库</div>
           <div class="dlg-item">转为 MP4</div>
           <div class="dlg-item">提取为 MP3</div>
+          <button class="btn btn-outline dlg-cancel">关闭</button>
         </div>
       </div>
       <div class="home-indicator"></div>

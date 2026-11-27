@@ -14,14 +14,14 @@
 .usage-card .big { font-size:26px; font-weight:600; color:var(--brand-6); font-family:var(--font-num); }
 .usage-card .sub { font-size:11px; color:var(--text-3); margin-top:2px; }
 .usage-row {
-  display:flex; justify-content:space-between; align-items:baseline;
+  display:flex; justify-content:space-between; align-items:center;
   padding:14px 2px; font-size:13px; color:var(--text-1); position:relative;
 }
 .usage-row + .usage-row::before { content:""; position:absolute; top:0; left:0; right:0; height:1px; background:rgba(117,121,255,.14); }
 .usage-row .val { text-align:right; font-size:13px; font-weight:600; color:var(--brand-6); font-family:var(--font-num); }
 .usage-row .val small { display:block; font-size:10px; font-weight:400; color:var(--text-3); font-family:var(--font-family); }
-.bottom-note { font-size:11px; color:var(--text-3); line-height:1.8; padding:14px 2px 0; }
-.bottom-note b { color:var(--text-2); font-weight:600; }
+.bottom-note { font-size:11px; color:var(--text-3); line-height:1.8; padding:12px 2px 0; }
+.bottom-note b { color:var(--text-2); font-weight:600; word-break:break-all; }
 </style>
 </head>
 <body>
@@ -61,9 +61,9 @@
           <div class="sub">应用私有目录合计，不含已导出副本</div>
           <div style="margin-top:10px;">
             <div class="usage-row"><span>下载 / 转换产物</span><span class="val">136.2 GB<small>312 个文件</small></span></div>
-            <div class="usage-row"><span>其中断点缓存 .part</span><span class="val">2.1 GB<small>5 个文件</small></span></div>
+            <div class="usage-row"><span>断点缓存 .part</span><span class="val">2.1 GB<small>5 个文件</small></span></div>
             <div class="usage-row"><span>无主文件</span><span class="val">8.3 GB<small>12 个文件</small></span></div>
-            <div class="usage-row"><span>临时分片</span><span class="val">2.0 GB<small>1,284 项，其中可清理 1,022 项</small></span></div>
+            <div class="usage-row"><span>临时分片</span><span class="val">2.0 GB<small>1,284 项</small></span></div>
           </div>
         </div>
 

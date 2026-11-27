@@ -10,4 +10,6 @@
   - 代理：`.proxy-card` 由单行 input 改为 rows=2 的 textarea，保存按钮绝对定位在卡内右下角
   - 追加：分片并发文案精简为「HLS 任务同时下载分片数」；问号点击由展开块改为浮动 Tooltip（深色气泡+箭头，`.group` 放开 overflow 让气泡可越界）；删除代理卡下方 note 及其样式；问号 icon 缩至 14px（图形 12px）
   - 再调：问号 icon 放大为 20px（图形 16px）；Tooltip 改为锚定在问号正下方、箭头对准问号中心（新增 q-wrap 包裹）；新增第三帧「问号 Tooltip」展示展开态设计稿（分片并发 tip 常开）
+  - 追加：弹窗去掉右上角 X（含废弃 i-close symbol），改为底部通栏「关闭」按钮（复用 base.css 的 btn-outline 品牌描边样式）
+  - 追加：Tooltip 宽度由 max-content/250px 收窄为固定 200px，文案折行变多、不再伸出屏幕右缘
 - 结果：浏览器打开 design/mobile/settings.html 核对弹窗布局、点击问号展开、代理文本域布局

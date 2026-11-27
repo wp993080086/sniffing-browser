@@ -8,13 +8,13 @@
 <style>
 /* 页面专属：历史记录 + 收藏夹（结构对照 历史记录.jpg / 收藏夹.jpg，均为空态） */
 /* 有值列表样式（合理推断） */
-.entry-list { padding:6px 16px 90px; }
+.entry-list { padding:var(--sp-2) var(--sp-4) 90px; }
 .entry {
   display:flex; align-items:center; gap:12px; padding:14px 0; position:relative; cursor:pointer;
   transition:transform var(--dur-fast) var(--ease);
 }
 .entry:active { transform:scale(.985); }
-.entry + .entry::before { content:""; position:absolute; top:0; left:44px; right:0; height:1px; background:var(--border); }
+.entry + .entry::before { content:""; position:absolute; top:0; left:46px; right:0; height:1px; background:var(--border); }
 .e-icon { width:34px; height:34px; border-radius:var(--radius-sm); flex-shrink:0; display:flex; align-items:center; justify-content:center; background:var(--fill-2); color:var(--text-2); }
 .e-icon svg { width:16px; height:16px; }
 .e-main { flex:1; min-width:0; }
@@ -23,8 +23,8 @@
 .e-star { width:34px; height:34px; border:none; background:transparent; color:var(--text-3); cursor:pointer; display:flex; align-items:center; justify-content:center; border-radius:50%; transition:transform var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
 .e-star svg { width:17px; height:17px; }
 .e-star:active { transform:scale(.85); }
-.e-star.on { color:var(--accent-5); }
-.date-label { font-size:11px; color:var(--text-3); font-weight:600; padding:10px 2px 4px; }
+.e-star.on { color:var(--brand-6); }
+.date-label { font-size:11px; color:var(--text-3); font-weight:600; padding:8px 2px 4px; }
 </style>
 </head>
 <body>

@@ -26,7 +26,6 @@
 .rule-kv { display:flex; justify-content:space-between; font-size:11px; }
 .rule-kv .k { color:var(--text-3); font-family:var(--font-mono); }
 .rule-kv .v { color:var(--text-1); font-family:var(--font-mono); max-width:60%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.rule-kv .v.empty { color:var(--text-3); }
 </style>
 </head>
 <body>
@@ -59,8 +58,8 @@
         </div>
       </div>
       <div class="page-body pad">
-        <p class="intro rise">只有自动请求头搞不定的站点才需要加规则。域名写主域即可，会自动匹配它的子域；留空的项不覆盖原值。Cookie 不在规则里 —— 登录态从 WebView 现取，写进文件既会过期也不安全。</p>
-        <div class="rule-empty">还没有规则，绝大多数站点也不需要</div>
+        <p class="intro rise">只有自动请求头搞不定的站点才需要加规则。域名写主域即可，会自动匹配它的子域；留空的项不覆盖原值。</p>
+        <div class="rule-empty">还没有站点规则，点击右下角 + 新增</div>
       </div>
       <button class="fab" aria-label="新增规则"><svg><use href="#i-plus"/></svg></button>
       <div class="home-indicator"></div>
@@ -93,7 +92,6 @@
             <div class="rule-rows">
               <div class="rule-kv"><span class="k">Referer</span><span class="v">https://m.example.com/</span></div>
               <div class="rule-kv"><span class="k">User-Agent</span><span class="v">Mozilla/5.0 (Linux; Android 14…</span></div>
-              <div class="rule-kv"><span class="k">Origin</span><span class="v empty">留空 · 不覆盖</span></div>
             </div>
           </div>
           <div class="rule-card rise" style="animation-delay:.06s;">
@@ -103,7 +101,6 @@
             </div>
             <div class="rule-rows">
               <div class="rule-kv"><span class="k">Referer</span><span class="v">https://m.example.com/</span></div>
-              <div class="rule-kv"><span class="k">User-Agent</span><span class="v empty">留空 · 不覆盖</span></div>
             </div>
           </div>
         </div>
