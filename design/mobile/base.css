@@ -71,40 +71,35 @@ body {
   box-shadow:0 24px 60px rgba(31,35,58,.28), 0 4px 14px rgba(31,35,58,.12);
   display:flex; flex-direction:column; position:relative; flex-shrink:0;
 }
-/* 状态栏（渐变，与 AppBar 连成一体） */
+/* 状态栏（全局白底，深色文字，无渐变肩部） */
 .statusbar {
-  height:44px; background:var(--gradient-brand); color:var(--text-4);
+  height:44px; background:var(--white); color:var(--text-1);
   display:flex; align-items:center; justify-content:space-between;
   padding:0 var(--sp-4); font-size:13px; font-weight:600; flex-shrink:0;
+  border-bottom:1px solid var(--border);
 }
 .statusbar .sb-icons { display:flex; gap:6px; align-items:center; }
 .statusbar .sb-icons svg { width:16px; height:16px; }
-/* 白色状态栏（首页等纯白顶部场景） */
-.statusbar.light { background:var(--white); color:var(--text-1); border-bottom:1px solid var(--border); }
 .home-indicator {
   position:absolute; bottom:7px; left:50%; transform:translateX(-50%);
   width:120px; height:4px; border-radius:2px; background:rgba(28,30,43,.22); z-index:20;
 }
 
-/* ---------- 渐变 AppBar（二级页） ---------- */
+/* ---------- 白色 AppBar（二级页） ---------- */
 .appbar {
-  background:var(--gradient-brand); padding:9px var(--sp-4); flex-shrink:0;
-  box-shadow:var(--shadow-brand), var(--shadow-inset); position:relative; z-index:3;
-}
-.appbar::after {
-  content:""; position:absolute; right:-50px; top:-60px; width:180px; height:180px;
-  border-radius:50%; background:radial-gradient(circle, rgba(255,255,255,.20), transparent 68%); pointer-events:none;
+  background:var(--white); padding:9px var(--sp-4); flex-shrink:0;
+  border-bottom:1px solid var(--border); position:relative; z-index:3;
 }
 .appbar-row { display:flex; align-items:center; gap:8px; }
-.appbar h1 { flex:1; color:var(--text-4); font-size:18px; font-weight:600; letter-spacing:.5px; }
+.appbar h1 { flex:1; color:var(--text-1); font-size:18px; font-weight:600; }
 .icon-btn {
   width:38px; height:38px; border-radius:var(--radius-md); border:none; cursor:pointer;
-  background:rgba(255,255,255,.18); color:var(--text-4);
+  background:transparent; color:var(--text-2);
   display:flex; align-items:center; justify-content:center;
   transition:transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 .icon-btn svg { width:20px; height:20px; }
-.icon-btn:active { transform:scale(.9); background:rgba(255,255,255,.30); }
+.icon-btn:active { transform:scale(.9); background:var(--fill-2); }
 
 /* ---------- 内容区 ---------- */
 .page-body { flex:1; overflow-y:auto; position:relative; }
@@ -125,7 +120,7 @@ body {
 }
 .row + .row::before { content:""; position:absolute; top:0; left:64px; right:0; height:1px; background:var(--border); }
 .row:active { background:var(--fill-1); }
-.row .ri { width:36px; height:36px; border-radius:var(--radius-md); flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+.row .ri { width:36px; height:36px; border-radius:var(--radius-md); flex-shrink:0; display:flex; align-items:center; justify-content:center; border:1px solid color-mix(in srgb, currentColor 22%, transparent); }
 .row .ri svg { width:18px; height:18px; }
 .ri.purple { background:var(--brand-1); color:var(--brand-5); }
 .ri.violet { background:var(--accent-1); color:#9a16d8; }

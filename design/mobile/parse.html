@@ -7,12 +7,30 @@
 <link rel="stylesheet" href="base.css">
 <style>
 /* 页面专属：视频解析（结构对照 视频解析.jpg） */
-.parse-row { display:flex; gap:10px; padding:var(--sp-4) var(--sp-4) var(--sp-2); }
-.parse-row .field { flex:1; min-width:0; }
-.parse-row .btn { flex-shrink:0; height:46px; }
+.parse-row { display:flex; flex-direction:column; gap:8px; padding:var(--sp-4) var(--sp-4) var(--sp-2); }
+.paste-wrap { position:relative; }
+.paste-box {
+  width:100%; height:72px; background:var(--white); border:1px solid var(--border);
+  border-radius:var(--radius-md); padding:10px 12px; font-family:inherit; font-size:13px;
+  line-height:1.6; color:var(--text-1); resize:none;
+  transition:border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.paste-box::placeholder { color:var(--text-3); }
+.paste-box:focus { outline:none; border-color:var(--brand-5); box-shadow:0 0 0 3px rgba(117,121,255,.15); }
+/* 有内容时悬浮于文本域右下角的清空钮：白色实底，不透出底下文字 */
+.clear-fab {
+  position:absolute; right:10px; bottom:10px; width:28px; height:28px; border:none; border-radius:var(--radius-full);
+  background:var(--white); color:var(--text-2); cursor:pointer;
+  box-shadow:0 2px 8px rgba(31,35,58,.16), 0 0 0 1px rgba(31,35,58,.06);
+  display:flex; align-items:center; justify-content:center;
+  transition:transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.clear-fab svg { width:14px; height:14px; }
+.clear-fab:active { transform:scale(.85); background:var(--fill-2); }
+.parse-row .btn { width:100%; height:44px; justify-content:center; }
 /* 解析结果卡 */
 .result-card {
-  margin:10px 16px 0; background:var(--white); border:1px solid var(--border);
+  margin:var(--sp-3) var(--sp-4) 0; background:var(--white); border:1px solid var(--border);
   border-radius:var(--radius-lg); box-shadow:var(--shadow-1); overflow:hidden;
   animation:rise var(--dur-slow) var(--ease) backwards;
 }
@@ -31,10 +49,11 @@
 .rc-title { font-size:13px; font-weight:600; line-height:1.4; }
 .rc-meta { font-size:11px; color:var(--text-3); margin-top:5px; display:flex; gap:8px; flex-wrap:wrap; }
 .rc-actions { display:flex; gap:10px; padding:0 var(--sp-4) var(--sp-4); }
+.rc-actions .btn { flex:1; }
 .rc-actions .btn { flex:1; height:40px; font-size:13px; }
 /* 解析中状态条 */
 .parsing-tip {
-  margin:10px 16px 0; padding:var(--sp-2) var(--sp-4); border-radius:var(--radius-md);
+  margin:var(--sp-3) var(--sp-4) 0; padding:var(--sp-2) var(--sp-4); border-radius:var(--radius-md);
   background:var(--brand-1); border:1px solid var(--brand-2);
   display:flex; align-items:center; gap:8px; font-size:12px; color:var(--brand-8);
 }
@@ -48,11 +67,11 @@
   <symbol id="i-signal" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="3" height="7" rx="1"/><rect x="8.5" y="11" width="3" height="10" rx="1"/><rect x="14" y="8" width="3" height="13" rx="1"/><rect x="19.5" y="4" width="3" height="17" rx="1" opacity=".4"/></symbol>
   <symbol id="i-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5a12.5 12.5 0 0 1 16 0"/><path d="M7 13a8.5 8.5 0 0 1 10 0"/><path d="M10 16.5a4.5 4.5 0 0 1 4 0"/><circle cx="12" cy="19.5" r="1" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-battery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="8" width="17" height="8" rx="2"/><path d="M22 11v2"/><rect x="4.5" y="10" width="10" height="4" rx="1" fill="currentColor" stroke="none"/></symbol>
-  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-chev-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></symbol>
   <symbol id="i-film" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7.5 4v16M16.5 4v16M3 9h4.5M3 15h4.5M16.5 9H21M16.5 15H21"/></symbol>
   <symbol id="i-music" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="17.5" r="3"/><circle cx="17.5" cy="15.5" r="3"/><path d="M10 17.5V6l10.5-2v11.5"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></symbol>
-  <symbol id="i-clipboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2.5" width="8" height="4" rx="1.2"/><path d="M8 4.5H6a2 2 0 0 0-2 2V20a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6.5a2 2 0 0 0-2-2h-2"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></symbol>
   <symbol id="i-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.5L4.5 13.5H11L10 21.5l8.5-11H12l1-8z"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 3.5V7h-3.5"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.1"/></symbol>
@@ -71,14 +90,13 @@
       </div>
       <div class="appbar">
         <div class="appbar-row">
-          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-chev-left"/></svg></button>
           <h1>视频解析</h1>
         </div>
       </div>
       <div class="parse-row">
-        <div class="field">
-          <input placeholder="粘贴抖音分享链接或整段文案" spellcheck="false">
-          <button class="icon-btn" style="width:30px;height:30px;background:var(--fill-2);color:var(--text-2);" aria-label="读取剪贴板"><svg style="width:16px;height:16px;"><use href="#i-clipboard"/></svg></button>
+        <div class="paste-wrap">
+          <textarea class="paste-box" rows="2" placeholder="粘贴抖音分享链接或整段文案" spellcheck="false"></textarea>
         </div>
         <button class="btn btn-primary"><svg><use href="#i-zap"/></svg>解析</button>
       </div>
@@ -86,7 +104,7 @@
         <div class="empty">
           <svg class="big" style="color:var(--brand-5);"><use href="#i-film"/></svg>
           <div class="t">把抖音链接粘到上面</div>
-          <div class="d">在抖音里点「分享 → 复制链接」，整段文案直接粘进来也行。<br><br>解析用的是页面自己的接口响应，不需要额外的账号或 key。</div>
+          <div class="d">在抖音里点「分享 → 复制链接」，<br>整段文案直接粘进来也行。</div>
         </div>
       </div>
       <div class="home-indicator"></div>
@@ -103,14 +121,14 @@
       </div>
       <div class="appbar">
         <div class="appbar-row">
-          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-chev-left"/></svg></button>
           <h1>视频解析</h1>
         </div>
       </div>
       <div class="parse-row">
-        <div class="field">
-          <input value="7.3 复制打开抖音，看看【xxx】的作品…" spellcheck="false">
-          <button class="icon-btn" style="width:30px;height:30px;background:var(--fill-2);color:var(--text-2);" aria-label="读取剪贴板"><svg style="width:16px;height:16px;"><use href="#i-clipboard"/></svg></button>
+        <div class="paste-wrap">
+          <textarea class="paste-box" rows="2" spellcheck="false">7.3 复制打开抖音，看看【xxx】的作品…</textarea>
+          <button class="clear-fab" aria-label="清空"><svg><use href="#i-close"/></svg></button>
         </div>
         <button class="btn btn-primary"><svg><use href="#i-zap"/></svg>解析</button>
       </div>
@@ -128,8 +146,7 @@
             </div>
           </div>
           <div class="rc-actions">
-            <button class="btn btn-primary"><svg><use href="#i-download"/></svg>下载视频</button>
-            <button class="btn btn-outline"><svg><use href="#i-music"/></svg>提取音频</button>
+            <button class="btn btn-outline"><svg><use href="#i-download"/></svg>下载视频</button>
           </div>
         </div>
         <div class="result-card rise" style="animation-delay:.08s;">
@@ -143,7 +160,7 @@
             </div>
           </div>
           <div class="rc-actions">
-            <button class="btn btn-outline" style="width:100%;"><svg><use href="#i-download"/></svg>下载音频</button>
+            <button class="btn btn-outline"><svg><use href="#i-download"/></svg>下载音频</button>
           </div>
         </div>
       </div>

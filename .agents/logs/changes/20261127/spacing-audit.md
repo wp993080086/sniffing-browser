@@ -33,3 +33,58 @@
 - 遮罩底衬：移除网页示意（hero/线条），改纯白 .web-demo
 - 清理孤儿定义：i-globe、i-scan（本页无引用后删除；i-scan 保留在 standard 图标库）
 - 验证：grep 无残留引用（i-globe/i-scan/web-hero/primary 零匹配）
+
+## tabs.html 页签抽屉修正（用户反馈）
+
+- 遮罩底衬改纯白；状态栏改 light 并提至遮罩之上（对齐 sniff.html 抽屉模式）
+- 抽屉高度改 80%（原内容自适应偏矮），tab-grid flex:1 撑满 + overflow-y:auto
+- 删除底部「新建页签」卡片（顶部已有新建按钮），同步删 .tab-card.add 样式
+- 第一张卡改为主页固定卡：无关闭按钮，home 图标 + 「主页」居中，新增 .tab-card.fixed 样式
+- 新图标 i-home 入标准库（defs + 展示区），tabs.html 同步；清理孤儿定义 i-globe、i-scan
+- 验证：grep 无残留引用（i-globe/i-scan/web-hero/tab-card.add 零匹配）
+
+## tabs.html 关闭按钮放大（用户反馈）
+
+- 页签卡右上角 X：命中区 24→32px（top/right 8→2px），图标 14→18px
+
+## 全局白色顶栏统一（用户确认方案）
+
+- 用户确认二级页顶栏改「全白」：base.css 状态栏默认改白底深字 + 1px 分割线，删除 .statusbar.light 变体；AppBar 渐变改白底（去 shadow-brand/inset/::after 高光），h1 深字，icon-btn 透明底深字、按压 fill-2
+- 清理 browser/sniff/tabs 三页已失效的 light 类
+- 卡片间距对齐「卡片间 12px」：transcode job-card、rules rule-card 与说明间距、parse 结果卡/提示条、logs 通道卡与列表顶距（10px → var(--sp-3)）
+- standard.html 09 节文案同步：「顶部栏（状态栏 + AppBar）白底深字、1px 底分割线」
+- 验证：settings.html?v=3 浏览器实测 PASS（状态栏/AppBar 均 rgb(255,255,255) 白底、深字、1px 分割线、background-image: none 渐变全消除）
+
+## AppBar 返回键图标统一（用户反馈）
+
+- 17 处返回键 i-back（箭头）→ i-chev-left（chevron）；9 个页面 defs 同步替换/新增，browser/sniff 两页无引用的 i-back 定义删除
+- 验证：grep i-back 全局零匹配
+
+## 类型图标与背景融合优化（用户截图反馈）
+
+- 问题：.ri/.f-icon 8% 淡色底压在浅灰页面底上无轮廓
+- 方案对比后选「1px 同色系边框」：color-mix(currentColor 22%) 自动按图标色取色，零新增 Token；不用阴影（小元素显脏）
+- 改动：base.css .row .ri、downloads.html .f-icon 各加 1px 边框（覆盖设置/存储/登录态/下载等所有行图标）
+
+## parse.html 输入区重做（用户反馈）
+
+- 去掉输入框右侧剪贴板图标；输入框改 2 行文本域（.paste-box，72px），右侧竖排双按钮：解析（渐变主按钮）+ 清空（btn-outline，i-trash）
+- 空态文案：删「解析用的是页面自己的接口响应，不需要额外的账号或 key」；上句拆为两行
+- defs：删 i-clipboard（孤儿）、加 i-trash；修正 frame2 替换时遗留的多余 </div>
+- 验证：div 开闭 42/42 平衡；grep i-clipboard/i-back 零残留
+
+## parse.html 按钮高度修复（浏览器实测）
+
+- 实测按钮 46px 而非 34px：旧规则 .parse-row .btn{height:46px} 在样式表靠后位置覆盖新规则（同特异性后者胜）
+- 删除旧规则与孤儿 .parse-row .field；按钮 34+34+4=72px 与文本域 72px 对齐
+
+## parse.html 布局重构（用户反馈）
+
+- 解析按钮移到文本域下方全宽（parse-row 改 column）；清空按钮不再独立占位，改为有内容时悬浮在文本域右下角（.clear-fab，28px 圆钮，rgba(23,24,43,.75) 实色底不透出文字）
+- 两帧分工表达状态：空态帧无清空钮、结果帧有内容显示清空钮；defs i-trash → i-close
+- 验证：div 42/42 平衡，i-trash/parse-actions 零残留
+
+## parse.html 清空钮美化 + 删提取音频（用户反馈）
+
+- 清空钮 rgba(23,24,43,.75) 深底 → 白色实底 + text-2 图标 + 细边框柔投影，按压 fill-2
+- 查证 lib/transcoder：项目有「转为 MP3」但仅在下载列表 ⋮ 菜单触发，解析页无此入口 → 删结果卡「提取音频」按钮；rc-actions 单按钮改 flex:1；i-music 定义保留（第二张卡类型图标在用）
