@@ -82,9 +82,9 @@
     </div>
   </div>
 
-  <!-- 进行中 + 已完成 -->
+  <!-- 进行中 tab -->
   <div>
-    <div class="frame-label"><span class="dot"></span>任务队列</div>
+    <div class="frame-label"><span class="dot"></span>tab · 进行中</div>
     <div class="phone">
       <div class="statusbar">
         <span>9:41</span>
@@ -98,8 +98,12 @@
         </div>
       </div>
       <div class="page-body">
-        <div class="sec-label" style="padding-top:16px;">进行中</div>
-        <div class="job-list" style="padding-top:0;">
+        <div class="chips">
+          <div class="chip on">进行中 1</div>
+          <div class="chip">排队中 1</div>
+          <div class="chip">已完成 1</div>
+        </div>
+        <div class="job-list" style="padding-top:4px;">
           <div class="job-card rise">
             <div class="job-top">
               <div class="ring">
@@ -121,15 +125,38 @@
               <span>剩余 <b>02:05</b></span>
             </div>
           </div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
 
-          <div class="sec-label" style="padding-top:20px;">排队中</div>
+  <!-- 排队中 tab -->
+  <div>
+    <div class="frame-label"><span class="dot"></span>tab · 排队中</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-chev-left"/></svg></button>
+          <h1>转换</h1>
+          <button class="icon-btn" aria-label="打开产物目录"><svg><use href="#i-folder"/></svg></button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="chips">
+          <div class="chip">进行中 1</div>
+          <div class="chip on">排队中 1</div>
+          <div class="chip">已完成 1</div>
+        </div>
+        <div class="job-list" style="padding-top:4px;">
           <div class="job-card rise">
             <div class="job-top">
-              <div class="ring">
-                <svg viewBox="0 0 52 52">
-                  <circle class="bg" cx="26" cy="26" r="22" fill="none" stroke-width="5"/>
-                </svg>
-                <span class="ico"><svg style="color:var(--warning);"><use href="#i-clock"/></svg></span>
+              <div style="width:52px;height:52px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--warning);">
+                <svg style="width:52px;height:52px;"><use href="#i-clock"/></svg>
               </div>
               <div class="job-main">
                 <div class="job-name">episode-02-audio.m4a</div>
@@ -138,16 +165,38 @@
               <button style="width:32px;height:32px;border:none;background:transparent;border-radius:8px;cursor:pointer;color:var(--text-2);display:flex;align-items:center;justify-content:center;" aria-label="更多"><svg style="width:17px;height:17px;"><use href="#i-more"/></svg></button>
             </div>
           </div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
 
-          <div class="sec-label" style="padding-top:20px;">已完成</div>
+  <!-- 已完成 tab -->
+  <div>
+    <div class="frame-label"><span class="dot"></span>tab · 已完成</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-chev-left"/></svg></button>
+          <h1>转换</h1>
+          <button class="icon-btn" aria-label="打开产物目录"><svg><use href="#i-folder"/></svg></button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="chips">
+          <div class="chip">进行中 1</div>
+          <div class="chip">排队中 1</div>
+          <div class="chip on">已完成 1</div>
+        </div>
+        <div class="job-list" style="padding-top:4px;">
           <div class="job-card rise">
             <div class="job-top">
-              <div class="ring">
-                <svg viewBox="0 0 52 52">
-                  <circle class="bg" cx="26" cy="26" r="22" fill="none" stroke-width="5"/>
-                  <circle cx="26" cy="26" r="22" fill="none" stroke-width="5" stroke="var(--success)" stroke-linecap="round" stroke-dasharray="138.2" stroke-dashoffset="0"/>
-                </svg>
-                <span class="ico"><svg style="color:var(--success);"><use href="#i-check-circle"/></svg></span>
+              <div style="width:52px;height:52px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--success);">
+                <svg style="width:52px;height:52px;"><use href="#i-check-circle"/></svg>
               </div>
               <div class="job-main">
                 <div class="job-name">lecture-recording.mp3</div>

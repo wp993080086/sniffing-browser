@@ -7,22 +7,26 @@
 <link rel="stylesheet" href="base.css">
 <style>
 /* 页面专属：设置（结构对照 设置.jpg）+「下载完成后」弹窗（对照 设置-下载完成后的选项弹窗.jpg） */
-/* 代理输入卡 */
+/* 代理输入卡（两行文本域，保存按钮内嵌右下角） */
 .proxy-card {
-  background:var(--white); border:1.5px solid var(--border-strong); border-radius:var(--radius-md);
-  padding:4px 14px; display:flex; align-items:center; gap:10px;
+  position:relative; background:var(--white); border:1.5px solid var(--border-strong);
+  border-radius:var(--radius-md); padding:10px 14px 36px;
   transition:border-color var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease);
 }
 .proxy-card:focus-within { border-color:var(--brand-5); box-shadow:0 0 0 3px rgba(117,121,255,.15); }
-.proxy-card input { flex:1; border:none; outline:none; background:transparent; font-family:inherit; font-size:14px; height:44px; min-width:0; color:var(--text-1); }
-.proxy-card input::placeholder { color:var(--text-3); }
+.proxy-card textarea {
+  display:block; width:100%; border:none; outline:none; background:transparent;
+  font-family:inherit; font-size:14px; line-height:1.6; resize:none;
+  color:var(--text-1); min-height:40px;
+}
+.proxy-card textarea::placeholder { color:var(--text-3); }
 .proxy-card .save {
+  position:absolute; right:6px; bottom:5px;
   border:none; background:transparent; cursor:pointer; font-family:inherit;
   font-size:13px; font-weight:600; color:var(--brand-6); padding:6px 8px; border-radius:var(--radius-sm);
   transition:background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
 }
 .proxy-card .save:active { background:var(--brand-1); transform:scale(.95); }
-.note { font-size:11px; color:var(--text-3); line-height:1.7; padding:10px 2px 0; }
 /* 分片并发行内的长说明 */
 .stepper { display:flex; align-items:center; gap:10px; flex-shrink:0; }
 .stepper button {
@@ -34,6 +38,31 @@
 .stepper button svg { width:14px; height:14px; }
 .stepper button:active { transform:scale(.88); background:var(--brand-1); }
 .stepper .num { min-width:20px; text-align:center; font-weight:600; font-size:14px; color:var(--brand-6); font-family:var(--font-num); }
+/* 栏目标题后的问号 icon + 从问号处伸出的 Tooltip */
+.q-wrap { position:relative; display:inline-flex; vertical-align:-5px; margin-left:3px; }
+.q-btn {
+  width:20px; height:20px; flex-shrink:0; border:none; background:transparent; padding:0;
+  cursor:pointer; color:var(--text-3); display:flex; align-items:center; justify-content:center;
+  transition:color var(--dur-fast) var(--ease);
+}
+.q-btn svg { width:16px; height:16px; }
+.q-btn:active { color:var(--brand-6); }
+.tip {
+  display:none; position:absolute; left:0; top:calc(100% + 8px); z-index:5;
+  width:max-content; max-width:250px; padding:7px 10px;
+  background:rgba(28,30,43,.92); border-radius:var(--radius-sm);
+  font-size:11px; line-height:1.6; color:var(--text-4);
+  box-shadow:var(--shadow-2);
+  text-align:left;
+}
+/* 小箭头，对准问号中心 */
+.tip::before {
+  content:""; position:absolute; top:-3px; left:6px; width:7px; height:7px;
+  background:inherit; transform:rotate(45deg); border-radius:1px;
+}
+.tip.on { display:block; }
+/* 让 Tooltip 能浮出分组卡片边界 */
+.group { overflow:visible; }
 /* 弹窗 */
 .dlg-mask { position:absolute; inset:0; background:rgba(23,24,43,.5); z-index:10; display:flex; align-items:center; justify-content:center; padding:0 36px; }
 .dialog {
@@ -41,7 +70,15 @@
   padding:var(--sp-6) var(--sp-6) var(--sp-3); animation:pop var(--dur-base) var(--ease-spring) backwards;
 }
 @keyframes pop { from { transform:scale(.92); opacity:0; } to { transform:scale(1); opacity:1; } }
-.dialog h3 { font-size:16px; font-weight:600; margin-bottom:8px; }
+.dialog h3 { font-size:16px; font-weight:600; margin-bottom:8px; text-align:center; position:relative; }
+.dialog .dlg-close {
+  position:absolute; right:0; top:50%; transform:translateY(-50%);
+  width:30px; height:30px; border:none; background:transparent; cursor:pointer;
+  color:var(--text-3); border-radius:var(--radius-sm);
+  display:flex; align-items:center; justify-content:center;
+}
+.dialog .dlg-close svg { width:18px; height:18px; }
+.dialog .dlg-close:active { background:var(--fill-2); }
 .dlg-item {
   display:flex; align-items:center; gap:10px; padding:14px 6px; font-size:14px; color:var(--text-1);
   cursor:pointer; border-radius:var(--radius-sm); position:relative;
@@ -69,6 +106,8 @@
   <symbol id="i-log" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8.5h8M8 12h8M8 15.5h5"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .8c0 1.7-2.5 2.1-2.5 3.4"/><path d="M12 16.6v.1"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></symbol>
 </defs></svg>
 
 <div class="page-title">移动端设计稿 · <b>设置</b> · 布局对照「设置.jpg / 设置-下载完成后的选项弹窗.jpg」</div>
@@ -94,16 +133,16 @@
           <div class="row">
             <div class="ri purple"><svg><use href="#i-rule"/></svg></div>
             <div class="row-main">
-              <div class="row-title">站点规则</div>
-              <div class="row-desc">0 条 · 只有自动请求头搞不定的站点才需要</div>
+              <div class="row-title">站点规则<span class="q-wrap"><button class="q-btn" aria-label="查看说明"><svg><use href="#i-help"/></svg></button><div class="tip">只有自动请求头搞不定的站点才需要在这里加规则，可针对某个域名自定义请求头。</div></span></div>
+              <div class="row-desc">0 条</div>
             </div>
             <div class="row-value"><svg><use href="#i-chev-right"/></svg></div>
           </div>
           <div class="row">
             <div class="ri blue"><svg><use href="#i-key"/></svg></div>
             <div class="row-main">
-              <div class="row-title">登录态管理</div>
-              <div class="row-desc">查看 / 清除网站 Cookie，登录后下载就不用重复填头的那套</div>
+              <div class="row-title">登录态管理<span class="q-wrap"><button class="q-btn" aria-label="查看说明"><svg><use href="#i-help"/></svg></button><div class="tip">登录后下载就不用重复填头的那套，浏览器里登录过的站点可直接复用。</div></span></div>
+              <div class="row-desc">查看 / 清除网站 Cookie</div>
             </div>
             <div class="row-value"><svg><use href="#i-chev-right"/></svg></div>
           </div>
@@ -114,8 +153,8 @@
           <div class="row">
             <div class="ri violet"><svg><use href="#i-layers"/></svg></div>
             <div class="row-main">
-              <div class="row-title">分片并发</div>
-              <div class="row-desc">单个 HLS 任务同时下载几个分片，默认 6。频繁出现「第 N 个分片失败」通常是被 CDN 限流，调到 3 或更低再试；网络很好时调高到 8~10 能快一些。</div>
+              <div class="row-title">分片并发<span class="q-wrap"><button class="q-btn" aria-label="查看说明"><svg><use href="#i-help"/></svg></button><div class="tip">频繁出现「第 N 个分片失败」通常是被 CDN 限流，调到 3 或更低再试；网络很好时调高到 8~10 能快一些。</div></span></div>
+              <div class="row-desc">HLS 任务同时下载分片数</div>
             </div>
             <div class="stepper">
               <button aria-label="减少"><svg><use href="#i-minus"/></svg></button>
@@ -133,8 +172,8 @@
           </div>
           <div class="row">
             <div class="row-main">
-              <div class="row-title">重启后自动续传</div>
-              <div class="row-desc">未下完的任务在下次启动时接着下（断点续传，不重新开始）</div>
+              <div class="row-title">重启后自动续传<span class="q-wrap"><button class="q-btn" aria-label="查看说明"><svg><use href="#i-help"/></svg></button><div class="tip">断点续传，不重新开始。</div></span></div>
+              <div class="row-desc">未下完的任务在下次启动时接着下</div>
             </div>
             <label class="switch"><input type="checkbox" checked><span class="track"><span class="thumb"></span></span></label>
           </div>
@@ -167,10 +206,9 @@
         <div class="sec-label" style="margin-top:var(--sp-5);">代理</div>
         <div class="rise">
           <div class="proxy-card">
-            <input placeholder="HTTP 代理" spellcheck="false">
+            <textarea rows="2" placeholder="HTTP 代理，留空表示直连。支持 http 与 socks5，例如 'socks5://127.0.0.1:1080'" spellcheck="false"></textarea>
             <button class="save">保存</button>
           </div>
-          <p class="note">留空表示直连。支持 http 与 socks5，例如 'socks5://127.0.0.1:1080'。</p>
         </div>
       </div>
       <div class="home-indicator"></div>
@@ -208,7 +246,7 @@
       <!-- 弹窗 -->
       <div class="dlg-mask">
         <div class="dialog">
-          <h3>下载完成后</h3>
+          <h3>下载完成后<button class="dlg-close" aria-label="关闭"><svg><use href="#i-close"/></svg></button></h3>
           <div class="dlg-item">不做任何操作<svg><use href="#i-check"/></svg></div>
           <div class="dlg-item">导出到系统媒体库</div>
           <div class="dlg-item">转为 MP4</div>
@@ -218,7 +256,86 @@
       <div class="home-indicator"></div>
     </div>
   </div>
+  <!-- 问号 Tooltip 展示态 -->
+  <div>
+    <div class="frame-label"><span class="dot"></span>问号 Tooltip</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-chev-left"/></svg></button>
+          <h1>设置</h1>
+        </div>
+      </div>
+      <div class="page-body pad" style="padding-bottom:40px;">
+        <div class="sec-label">网络</div>
+        <div class="group rise">
+          <div class="row">
+            <div class="ri purple"><svg><use href="#i-rule"/></svg></div>
+            <div class="row-main">
+              <div class="row-title">站点规则<span class="q-wrap"><button class="q-btn" aria-label="查看说明"><svg><use href="#i-help"/></svg></button><div class="tip">只有自动请求头搞不定的站点才需要在这里加规则，可针对某个域名自定义请求头。</div></span></div>
+              <div class="row-desc">0 条</div>
+            </div>
+            <div class="row-value"><svg><use href="#i-chev-right"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="ri blue"><svg><use href="#i-key"/></svg></div>
+            <div class="row-main">
+              <div class="row-title">登录态管理<span class="q-wrap"><button class="q-btn" aria-label="查看说明"><svg><use href="#i-help"/></svg></button><div class="tip">登录后下载就不用重复填头的那套，浏览器里登录过的站点可直接复用。</div></span></div>
+              <div class="row-desc">查看 / 清除网站 Cookie</div>
+            </div>
+            <div class="row-value"><svg><use href="#i-chev-right"/></svg></div>
+          </div>
+        </div>
+
+        <div class="sec-label" style="margin-top:var(--sp-5);">下载</div>
+        <div class="group rise">
+          <div class="row">
+            <div class="ri violet"><svg><use href="#i-layers"/></svg></div>
+            <div class="row-main">
+              <div class="row-title">分片并发<span class="q-wrap"><button class="q-btn" aria-label="查看说明"><svg><use href="#i-help"/></svg></button><div class="tip on">频繁出现「第 N 个分片失败」通常是被 CDN 限流，调到 3 或更低再试；网络很好时调高到 8~10 能快一些。</div></span></div>
+              <div class="row-desc">HLS 任务同时下载分片数</div>
+            </div>
+            <div class="stepper">
+              <button aria-label="减少"><svg><use href="#i-minus"/></svg></button>
+              <span class="num">6</span>
+              <button aria-label="增加"><svg><use href="#i-plus"/></svg></button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="ri purple"><svg><use href="#i-download"/></svg></div>
+            <div class="row-main">
+              <div class="row-title">下载完成后</div>
+              <div class="row-desc">不做任何操作</div>
+            </div>
+            <div class="row-value"><svg><use href="#i-chev-right"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-main">
+              <div class="row-title">重启后自动续传<span class="q-wrap"><button class="q-btn" aria-label="查看说明"><svg><use href="#i-help"/></svg></button><div class="tip">断点续传，不重新开始。</div></span></div>
+              <div class="row-desc">未下完的任务在下次启动时接着下</div>
+            </div>
+            <label class="switch"><input type="checkbox" checked><span class="track"><span class="thumb"></span></span></label>
+          </div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
 </div>
+
+<script>
+// 点击栏目标题旁的问号 icon，展开 / 收起详细文案
+document.querySelectorAll('.q-btn').forEach(function (btn) {
+  btn.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    btn.closest('.q-wrap').querySelector('.tip').classList.toggle('on');
+  });
+});
+</script>
 
 </body>
 </html>
