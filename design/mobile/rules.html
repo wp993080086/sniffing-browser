@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>移动端 · 站点规则</title>
+<link rel="stylesheet" href="base.css">
+<style>
+/* 页面专属：站点规则（结构对照 站点规则.jpg） */
+.intro { font-size:12px; color:var(--text-2); line-height:1.8; padding:2px; }
+.rule-empty {
+  position:absolute; left:0; right:0; top:44%;
+  text-align:center; font-size:13px; color:var(--text-3);
+}
+/* 规则卡（有值态示意） */
+.rule-card {
+  background:var(--white); border:1px solid var(--border); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-1); padding:var(--sp-4); margin-bottom:10px; cursor:pointer;
+  transition:transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.rule-card:active { transform:scale(.98); box-shadow:var(--shadow-2); }
+.rule-head { display:flex; align-items:center; gap:8px; }
+.rule-head .host { font-size:14px; font-weight:600; font-family:var(--font-mono); }
+.rule-head .match { font-size:10px; color:var(--text-3); margin-left:auto; }
+.rule-rows { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+.rule-kv { display:flex; justify-content:space-between; font-size:11px; }
+.rule-kv .k { color:var(--text-3); font-family:var(--font-mono); }
+.rule-kv .v { color:var(--text-1); font-family:var(--font-mono); max-width:60%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rule-kv .v.empty { color:var(--text-3); }
+</style>
+</head>
+<body>
+
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="i-signal" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="3" height="7" rx="1"/><rect x="8.5" y="11" width="3" height="10" rx="1"/><rect x="14" y="8" width="3" height="13" rx="1"/><rect x="19.5" y="4" width="3" height="17" rx="1" opacity=".4"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5a12.5 12.5 0 0 1 16 0"/><path d="M7 13a8.5 8.5 0 0 1 10 0"/><path d="M10 16.5a4.5 4.5 0 0 1 4 0"/><circle cx="12" cy="19.5" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="8" width="17" height="8" rx="2"/><path d="M22 11v2"/><rect x="4.5" y="10" width="10" height="4" rx="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></symbol>
+</defs></svg>
+
+<div class="page-title">移动端设计稿 · <b>站点规则</b> · 布局对照「站点规则.jpg」</div>
+
+<div class="frames">
+  <!-- 空态（1:1 对照截屏） -->
+  <div>
+    <div class="frame-label"><span class="dot"></span>空态</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <h1>站点规则</h1>
+          <button class="icon-btn" aria-label="保存"><svg><use href="#i-check"/></svg></button>
+        </div>
+      </div>
+      <div class="page-body pad">
+        <p class="intro rise">只有自动请求头搞不定的站点才需要加规则。域名写主域即可，会自动匹配它的子域；留空的项不覆盖原值。Cookie 不在规则里 —— 登录态从 WebView 现取，写进文件既会过期也不安全。</p>
+        <div class="rule-empty">还没有规则，绝大多数站点也不需要</div>
+      </div>
+      <button class="fab" aria-label="新增规则"><svg><use href="#i-plus"/></svg></button>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+
+  <!-- 有值态 -->
+  <div>
+    <div class="frame-label"><span class="dot"></span>有值 · 规则列表</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <h1>站点规则</h1>
+          <button class="icon-btn" aria-label="保存"><svg><use href="#i-check"/></svg></button>
+        </div>
+      </div>
+      <div class="page-body pad">
+        <p class="intro rise">只有自动请求头搞不定的站点才需要加规则。域名写主域即可，会自动匹配它的子域；留空的项不覆盖原值。</p>
+        <div style="margin-top:10px;">
+          <div class="rule-card rise">
+            <div class="rule-head">
+              <span class="host">example.com</span>
+              <span class="match">匹配 *.example.com</span>
+            </div>
+            <div class="rule-rows">
+              <div class="rule-kv"><span class="k">Referer</span><span class="v">https://m.example.com/</span></div>
+              <div class="rule-kv"><span class="k">User-Agent</span><span class="v">Mozilla/5.0 (Linux; Android 14…</span></div>
+              <div class="rule-kv"><span class="k">Origin</span><span class="v empty">留空 · 不覆盖</span></div>
+            </div>
+          </div>
+          <div class="rule-card rise" style="animation-delay:.06s;">
+            <div class="rule-head">
+              <span class="host">cdn.example-vid.com</span>
+              <span class="match">匹配子域</span>
+            </div>
+            <div class="rule-rows">
+              <div class="rule-kv"><span class="k">Referer</span><span class="v">https://m.example.com/</span></div>
+              <div class="rule-kv"><span class="k">User-Agent</span><span class="v empty">留空 · 不覆盖</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button class="fab" aria-label="新增规则"><svg><use href="#i-plus"/></svg></button>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

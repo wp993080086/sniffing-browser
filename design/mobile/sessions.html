@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>移动端 · 登录态管理</title>
+<link rel="stylesheet" href="base.css">
+<style>
+/* 页面专属：登录态管理（结构对照 登录态管理.jpg） */
+.info-card {
+  background:var(--white); border:1px solid var(--border); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-1); padding:16px;
+}
+.info-card h3 { font-size:14px; font-weight:600; margin-bottom:8px; }
+.info-card p { font-size:12px; color:var(--text-2); line-height:1.8; margin-top:6px; }
+.view-row { display:flex; gap:10px; padding-top:8px; }
+.view-row .field { flex:1; min-width:0; }
+.view-row .btn { flex-shrink:0; height:46px; }
+/* 全部站点操作 */
+.danger-pill { width:100%; margin-top:8px; }
+</style>
+</head>
+<body>
+
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="i-signal" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="3" height="7" rx="1"/><rect x="8.5" y="11" width="3" height="10" rx="1"/><rect x="14" y="8" width="3" height="13" rx="1"/><rect x="19.5" y="4" width="3" height="17" rx="1" opacity=".4"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5a12.5 12.5 0 0 1 16 0"/><path d="M7 13a8.5 8.5 0 0 1 10 0"/><path d="M10 16.5a4.5 4.5 0 0 1 4 0"/><circle cx="12" cy="19.5" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="8" width="17" height="8" rx="2"/><path d="M22 11v2"/><rect x="4.5" y="10" width="10" height="4" rx="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16"/><path d="M9 6.5V4.8A1.3 1.3 0 0 1 10.3 3.5h3.4A1.3 1.3 0 0 1 15 4.8v1.7"/><path d="M6.2 6.5l1 13a1.5 1.5 0 0 0 1.5 1.4h6.6a1.5 1.5 0 0 0 1.5-1.4l1-13"/></symbol>
+</defs></svg>
+
+<div class="page-title">移动端设计稿 · <b>登录态管理</b> · 布局对照「登录态管理.jpg」</div>
+
+<div class="frames">
+  <div>
+    <div class="frame-label"><span class="dot"></span>说明卡 + 按站点查看 + 全部清除</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <h1>登录态管理</h1>
+        </div>
+      </div>
+      <div class="page-body pad" style="padding-bottom:40px;">
+        <!-- 说明卡 -->
+        <div class="info-card rise">
+          <h3>「下次自动登录」是谁决定的？</h3>
+          <p>浏览器负责把网站写下的 Cookie 存好，并在每次请求时带回去；应用重启后它们默认还在。是否下发「长期免登录凭证」由网站决定：只发会话 Cookie 的站点，关掉页面就得重新登录，浏览器无法绕过。</p>
+          <p>下载时会自动注入当前 WebView 里这个地址的 Cookie，因此在这里清掉登录后就会重新出现 403。</p>
+        </div>
+
+        <!-- 按站点查看 -->
+        <div class="sec-label" style="margin-top:20px;">按站点查看</div>
+        <div class="view-row rise">
+          <div class="field">
+            <svg><use href="#i-search"/></svg>
+            <input placeholder="站点地址" spellcheck="false">
+          </div>
+          <button class="btn btn-primary">查看</button>
+        </div>
+
+        <!-- 全部站点 -->
+        <div class="sec-label" style="margin-top:20px;">全部站点</div>
+        <button class="btn btn-outline btn-pill danger-pill rise">
+          <svg><use href="#i-trash"/></svg>清除全部 Cookie
+        </button>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

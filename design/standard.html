@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sniffing Browser 设计标准 · Design Tokens</title>
+<style>
+/* ==========================================================
+   Sniffing Browser 全局设计标准（Design Tokens）
+   主题：渐变紫蓝 to top #b224ef → #7579ff
+   参考：TDesign / Naive UI 的中性体系
+   ========================================================== */
+
+/* ---------- Tokens：:root 全量变量，供所有设计稿复用 ---------- */
+:root {
+  /* 品牌渐变（主题核心） */
+  --gradient-brand: linear-gradient(to top, #b224ef 0%, #7579ff 100%);
+  --gradient-brand-soft: linear-gradient(to top, rgba(178,36,239,.10), rgba(117,121,255,.10));
+
+  /* 品牌色阶（以渐变两端为主锚点扩展） */
+  --brand-1: #f2f1ff;   /* 最浅，填充背景 */
+  --brand-2: #e4e6ff;   /* 浅，hover 填充 */
+  --brand-3: #c8caff;   /* 禁用态填充 */
+  --brand-4: #a2a6ff;   /* 浅主色 */
+  --brand-5: #7579ff;   /* 主色（渐变顶部色） */
+  --brand-6: #5c60ec;   /* hover 深主色 */
+  --brand-7: #494dd6;   /* pressed 深主色 */
+  --brand-8: #34389b;   /* 文本级深色 */
+
+  /* 强调紫（渐变底部色） */
+  --accent-5: #b224ef;
+  --accent-6: #9a16d8;
+  --accent-1: #fbefff;
+
+  /* 功能色（对齐 TDesign，微调协调紫色系） */
+  --success: #2ba471;  --success-bg: #e3f8ee;
+  --warning: #e37318;  --warning-bg: #fff1e0;
+  --error:   #d54941;  --error-bg:   #fdecec;
+  --info:    #3461fa;  --info-bg:    #eaf0ff;
+
+  /* 中性色 */
+  --text-1: #1c1e2b;                       /* 主文本 */
+  --text-2: rgba(28,30,43,.62);            /* 次文本 */
+  --text-3: rgba(28,30,43,.40);            /* 占位 / 禁用 */
+  --text-4: rgba(255,255,255,.96);         /* 深色底上的文本 */
+  --border: #e6e8f2;
+  --border-strong: #d5d8e6;
+  --fill-1: #f4f5fb;                       /* 页面背景 */
+  --fill-2: #eef0f7;                       /* 组件填充 */
+  --white: #ffffff;
+
+  /* 字体 */
+  --font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", -apple-system, "Segoe UI", sans-serif;
+  --font-num: "SF Pro Display", "Segoe UI", var(--font-family);
+  --fs-10: 10px; --fs-12: 12px; --fs-13: 13px; --fs-14: 14px;
+  --fs-16: 16px; --fs-18: 18px; --fs-22: 22px; --fs-28: 28px;
+  --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600;
+
+  /* 间距刻度（Spacing Scale，基础单位 4px） */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;   /* 页面左右内边距基准 */
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+
+  /* 毛玻璃（Glassmorphism，悬浮控件用） */
+  --glass-bg: rgba(255,255,255,.62);
+  --glass-border: rgba(255,255,255,.55);
+  --glass-blur: blur(16px) saturate(1.4);
+
+  /* 圆角 */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  /* 阴影（光影体系） */
+  --shadow-1: 0 1px 4px rgba(31,35,58,.06);            /* 卡片静置 */
+  --shadow-2: 0 4px 14px rgba(31,35,58,.10);           /* 卡片悬浮 / 吸顶 */
+  --shadow-3: 0 8px 28px rgba(31,35,58,.14);           /* 弹层 / 对话框 */
+  --shadow-brand: 0 6px 18px rgba(132,101,255,.38);    /* 渐变按钮光晕 */
+  --shadow-brand-press: 0 3px 10px rgba(132,101,255,.30);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,.25); /* 渐变上的高光 */
+  --shadow-drawer: 0 -8px 30px rgba(31,35,58,.18);     /* 底部抽屉上抛阴影 */
+  --shadow-glass: 0 8px 24px rgba(31,35,58,.16);       /* 毛玻璃悬浮控件 */
+
+  /* 动效 */
+  --dur-fast: 150ms;
+  --dur-base: 250ms;
+  --dur-slow: 400ms;
+  --ease: cubic-bezier(.33, 0, .2, 1);
+  --ease-spring: cubic-bezier(.34, 1.32, .5, 1);
+}
+
+/* ---------- 演示页基础 ---------- */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--font-family);
+  background: var(--fill-1);
+  color: var(--text-1);
+  font-size: var(--fs-14);
+  line-height: 1.6;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 48px 32px 96px; }
+
+/* 页头：渐变主题横幅 */
+.hero {
+  background: var(--gradient-brand);
+  border-radius: var(--radius-xl);
+  padding: 40px 40px 36px;
+  color: var(--text-4);
+  box-shadow: var(--shadow-brand), var(--shadow-inset);
+  position: relative;
+  overflow: hidden;
+}
+.hero::after {
+  content: "";
+  position: absolute; right: -60px; top: -80px;
+  width: 280px; height: 280px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,.22), transparent 68%);
+}
+.hero h1 { font-size: var(--fs-28); font-weight: var(--fw-semibold); letter-spacing: .5px; }
+.hero p { margin-top: 8px; opacity: .92; font-size: var(--fs-14); max-width: 640px; }
+.hero .code {
+  display: inline-block; margin-top: 16px;
+  font-family: Consolas, monospace; font-size: var(--fs-12);
+  background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.28);
+  padding: 8px 14px; border-radius: var(--radius-sm);
+}
+
+/* 章节标题 */
+.sec { margin-top: 56px; }
+.sec > h2 {
+  font-size: var(--fs-18); font-weight: var(--fw-semibold);
+  display: flex; align-items: center; gap: 10px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 20px;
+}
+.sec > h2 .tag {
+  font-size: var(--fs-10); font-weight: var(--fw-medium);
+  background: var(--brand-1); color: var(--brand-6);
+  padding: 2px 8px; border-radius: var(--radius-full);
+  letter-spacing: .5px;
+}
+.grid { display: grid; gap: 16px; }
+.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.cols-5 { grid-template-columns: repeat(5, 1fr); }
+.card {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-1);
+}
+.card h3 { font-size: var(--fs-14); font-weight: var(--fw-semibold); margin-bottom: 4px; }
+.card .desc { font-size: var(--fs-12); color: var(--text-2); margin-bottom: 14px; }
+.mono { font-family: Consolas, monospace; font-size: var(--fs-12); color: var(--text-2); }
+
+/* ---------- 色板 ---------- */
+.swatch {
+  border-radius: var(--radius-md); padding: 14px; color: #fff;
+  min-height: 88px; display: flex; flex-direction: column; justify-content: flex-end;
+  box-shadow: var(--shadow-1); transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  cursor: default;
+}
+.swatch:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.swatch .name { font-size: var(--fs-12); font-weight: var(--fw-medium); }
+.swatch .val { font-size: var(--fs-10); opacity: .85; font-family: Consolas, monospace; }
+.swatch.dark-text { color: var(--text-1); }
+
+/* ---------- 渐变体系 ---------- */
+.grad-band {
+  border-radius: var(--radius-lg); padding: 20px; color: var(--text-4);
+  display: flex; flex-direction: column; justify-content: space-between; min-height: 120px;
+  box-shadow: var(--shadow-brand), var(--shadow-inset);
+}
+.grad-band .mono { color: rgba(255,255,255,.9); }
+
+/* ---------- 字体 ---------- */
+.type-row { display: flex; align-items: baseline; gap: 20px; padding: 14px 4px; border-bottom: 1px dashed var(--border); }
+.type-row:last-child { border-bottom: none; }
+.type-meta { width: 200px; flex-shrink: 0; font-size: var(--fs-12); color: var(--text-2); font-family: Consolas, monospace; }
+
+/* ---------- 阴影 ---------- */
+.shadow-demo {
+  height: 84px; background: var(--white); border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-12); color: var(--text-2); transition: transform var(--dur-base) var(--ease);
+}
+.shadow-demo:hover { transform: translateY(-3px); }
+
+/* ---------- 按钮（含按压态） ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 40px; padding: 0 20px; border: none; cursor: pointer;
+  font-size: var(--fs-14); font-weight: var(--fw-medium); font-family: inherit;
+  border-radius: var(--radius-md);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+              background var(--dur-fast) var(--ease), filter var(--dur-fast) var(--ease),
+              opacity var(--dur-fast) var(--ease);
+  user-select: none;
+}
+.btn svg { width: 18px; height: 18px; }
+.btn-primary { background: var(--gradient-brand); color: var(--text-4); box-shadow: var(--shadow-brand), var(--shadow-inset); }
+.btn-primary:hover { filter: brightness(1.05); box-shadow: 0 8px 22px rgba(132,101,255,.45), var(--shadow-inset); }
+.btn-primary:active { transform: scale(.96); filter: brightness(.93); box-shadow: var(--shadow-brand-press); }
+.btn-plain { background: var(--fill-2); color: var(--text-1); }
+.btn-plain:hover { background: var(--brand-1); color: var(--brand-6); }
+.btn-plain:active { transform: scale(.96); background: var(--brand-2); }
+.btn-outline { background: var(--white); color: var(--brand-6); border: 1px solid var(--brand-4); }
+.btn-outline:hover { background: var(--brand-1); }
+.btn-outline:active { transform: scale(.96); background: var(--brand-2); }
+.btn-danger { background: var(--error-bg); color: var(--error); }
+.btn-danger:active { transform: scale(.96); filter: brightness(.95); }
+.btn:disabled { background: var(--brand-3); color: rgba(255,255,255,.9); box-shadow: none; cursor: not-allowed; transform: none; filter: none; }
+.btn-sm { height: 32px; padding: 0 14px; font-size: var(--fs-13); border-radius: var(--radius-sm); }
+
+/* ---------- 开关 ---------- */
+.switch { position: relative; width: 44px; height: 26px; cursor: pointer; }
+.switch input { display: none; }
+.switch .track {
+  position: absolute; inset: 0; border-radius: var(--radius-full);
+  background: var(--fill-2); border: 1px solid var(--border-strong);
+  transition: background var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
+}
+.switch .thumb {
+  position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--white); box-shadow: var(--shadow-2);
+  transition: transform var(--dur-base) var(--ease-spring);
+}
+.switch input:checked + .track { background: var(--gradient-brand); border-color: transparent; box-shadow: var(--shadow-inset); }
+.switch input:checked + .track .thumb { transform: translateX(18px); }
+.switch:active .thumb { width: 24px; }
+
+/* ---------- 进度条 / 圆环 ---------- */
+.bar { height: 6px; border-radius: var(--radius-full); background: var(--fill-2); overflow: hidden; }
+.bar > i {
+  display: block; height: 100%; width: 62%;
+  background: var(--gradient-brand); border-radius: var(--radius-full);
+  box-shadow: 0 0 6px rgba(117,121,255,.5);
+}
+
+/* ---------- 标签 ---------- */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--fs-10); font-weight: var(--fw-medium);
+  padding: 3px 10px; border-radius: var(--radius-full);
+}
+.chip svg { width: 12px; height: 12px; }
+
+/* ---------- 图标规范 ---------- */
+.icon-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 12px; }
+.icon-cell {
+  background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 14px 6px 10px; text-align: center; cursor: default;
+  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.icon-cell:hover { transform: translateY(-2px); border-color: var(--brand-4); box-shadow: var(--shadow-2); }
+.icon-cell svg { width: 26px; height: 26px; color: var(--text-1); }
+.icon-cell.brand svg { color: var(--brand-5); }
+.icon-cell .nm { display: block; margin-top: 6px; font-size: 10px; color: var(--text-3); font-family: Consolas, monospace; }
+
+/* 图标规范说明块 */
+.icon-rule {
+  display: flex; gap: 16px; align-items: center;
+  background: var(--brand-1); border-radius: var(--radius-md); padding: 14px 16px;
+  font-size: var(--fs-12); color: var(--text-2); margin-top: 16px;
+}
+.icon-rule b { color: var(--brand-8); }
+
+/* 动效演示 */
+.ease-demo { display: flex; align-items: center; gap: 14px; padding: 10px 0; }
+.ease-track { flex: 1; height: 8px; border-radius: var(--radius-full); background: var(--fill-2); position: relative; }
+.ease-dot {
+  position: absolute; top: -6px; left: 0; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--gradient-brand); box-shadow: var(--shadow-brand);
+  animation: slide 2.2s var(--demo-ease, ease) infinite alternate;
+}
+@keyframes slide { from { left: 0; } to { left: calc(100% - 20px); } }
+.ease-label { width: 210px; flex-shrink: 0; font-family: Consolas, monospace; font-size: var(--fs-12); color: var(--text-2); }
+
+/* 按压态演示 */
+.press-demo {
+  display: inline-flex; flex-direction: column; align-items: center; gap: 10px;
+  background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 22px 30px; cursor: pointer; transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  box-shadow: var(--shadow-1); font-size: var(--fs-12); color: var(--text-2);
+}
+.press-demo:hover { box-shadow: var(--shadow-2); }
+.press-demo:active { transform: scale(.95); box-shadow: var(--shadow-1); }
+.press-demo svg { width: 28px; height: 28px; color: var(--brand-5); }
+
+/* 深色文本用于浅底色板 */
+.swatch.dark-text { color: var(--text-1); }
+.footer-note { margin-top: 64px; font-size: var(--fs-12); color: var(--text-3); text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- 统一图标库（Lucide 风格：24 viewBox / stroke 1.8 / 圆角端点，禁止 emoji） -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7.5 4v16M16.5 4v16M3 9h4.5M3 15h4.5M16.5 9H21M16.5 15H21"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="17.5" r="3"/><circle cx="17.5" cy="15.5" r="3"/><path d="M10 17.5V6l10.5-2v11.5"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="9.5" r="1.8"/><path d="M21 15.5l-4.5-4.5L7 20.5"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5.5v13l11-6.5-11-6.5z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5v14M15 5v14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/></symbol>
+    <symbol id="i-check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.2 12.3l2.6 2.6 5-5.6"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.1"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16"/><path d="M9 6.5V4.8A1.3 1.3 0 0 1 10.3 3.5h3.4A1.3 1.3 0 0 1 15 4.8v1.7"/><path d="M6.2 6.5l1 13a1.5 1.5 0 0 0 1.5 1.4h6.6a1.5 1.5 0 0 0 1.5-1.4l1-13"/><path d="M10 10.5v6M14 10.5v6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5.2" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="18.8" r="1.4"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 3.5V7h-3.5"/></symbol>
+    <symbol id="i-hard-drive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M5.5 9l2-4.5A1.5 1.5 0 0 1 8.9 3.5h6.2a1.5 1.5 0 0 1 1.4 1l2 4.5"/><path d="M7.5 13.2h.1M11 13.2h.1"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.5L4.5 13.5H11L10 21.5l8.5-11H12l1-8z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.2A2.2 2.2 0 0 1 5.2 5h4l2.2 2.6h7.4A2.2 2.2 0 0 1 21 9.8v8A2.2 2.2 0 0 1 18.8 20H5.2A2.2 2.2 0 0 1 3 17.8V7.2z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.4 2"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 14.5l5-5"/><path d="M7.5 11L5.2 13.3a3.8 3.8 0 0 0 5.4 5.4L13 16.3"/><path d="M16.5 13l2.3-2.3a3.8 3.8 0 0 0-5.4-5.4L11 7.7"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5l8.75 3.25v6.2c0 5.2-3.85 9.3-8.75 10.55-4.9-1.25-8.75-5.35-8.75-10.55v-6.2L12 2.5z"/><path d="M8.5 12.2l2.5 2.5 4.5-5"/></symbol>
+    <symbol id="i-shield-fill" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2.5l8.75 3.25v6.2c0 5.2-3.85 9.3-8.75 10.55-4.9-1.25-8.75-5.35-8.75-10.55v-6.2L12 2.5z"/><path d="M8.5 12.6l2.5 2.5 4.6-5.1" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M3.5 12h17"/></symbol>
+    <symbol id="i-radar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8.5A3.5 3.5 0 1 0 15.5 12"/><path d="M12 3.5A8.5 8.5 0 1 0 20.5 12"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-tabs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2.5"/><path d="M16.5 3.5H6A2.5 2.5 0 0 0 3.5 6v10.5"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 1 2.5 6"/><path d="M3.5 12V7.5M3.5 12H8"/><path d="M12 8v4.5l3 1.8"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5z"/></symbol>
+    <symbol id="i-star-fill" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"/></symbol>
+    <symbol id="i-chev-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 9.5l6.5 6.5 6.5-6.5"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-forward" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 4l3 3-3 3M20 7H4"/><path d="M7 20l-3-3 3-3M4 17h16"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15.5" r="4"/><path d="M11 12.5L20 3.5M16 7.5l3 3"/></symbol>
+    <symbol id="i-clipboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2.5" width="8" height="4" rx="1.2"/><path d="M8 4.5H6a2 2 0 0 0-2 2V20a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6.5a2 2 0 0 0-2-2h-2"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v5.5l-4 2V13L3 5z"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V8"/><path d="M7 12l5-5 5 5"/><path d="M4 4h16"/></symbol>
+    <symbol id="i-broom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5l7 7"/><path d="M16 6L9 13"/><path d="M9 13l2 2-4.5 5.5L3 17l6-4z" fill="currentColor" fill-opacity=".12"/></symbol>
+    <symbol id="i-rule" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5h9M19.5 7.5H20"/><circle cx="16" cy="7.5" r="2"/><path d="M4 16.5h2.5M13 16.5h7"/><circle cx="10" cy="16.5" r="2"/></symbol>
+    <symbol id="i-log" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8.5h8M8 12h8M8 15.5h5"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+  <!-- 页头 -->
+  <div class="hero">
+    <h1>Sniffing Browser 设计标准</h1>
+    <p>跨端媒体嗅探下载器（Android / HarmonyOS NEXT / Windows）。本页是全局 Design Tokens 标准：色彩、渐变、字体、圆角、阴影、动效、按压态与图标规范。所有设计稿与 Flutter 主题实现均以本页变量为准。</p>
+    <span class="code">background-image: linear-gradient(to top, #b224ef 0%, #7579ff 100%);</span>
+  </div>
+
+  <!-- 01 品牌渐变 -->
+  <div class="sec">
+    <h2>01 品牌渐变体系 <span class="tag">Gradient</span></h2>
+    <div class="grid cols-3">
+      <div class="grad-band" style="background: var(--gradient-brand);">
+        <b style="font-size:var(--fs-14)">主渐变 · Brand Gradient</b>
+        <span class="mono">to top · #b224ef → #7579ff</span>
+      </div>
+      <div class="grad-band" style="background: linear-gradient(to top, #b224ef 0%, #7579ff 60%, #9aa0ff 100%);">
+        <b style="font-size:var(--fs-14)">扩展渐变 · 高光端</b>
+        <span class="mono">大区块 / 横幅场景使用</span>
+      </div>
+      <div class="grad-band" style="background: var(--gradient-brand-soft); color: var(--brand-8); box-shadow: var(--shadow-1); border: 1px solid var(--brand-2);">
+        <b style="font-size:var(--fs-14)">弱化渐变 · Soft</b>
+        <span class="mono" style="color:var(--brand-6)">选中态底色 / 提示区</span>
+      </div>
+    </div>
+    <p class="mono" style="margin-top:12px">使用原则：主渐变只用于「行动入口」——主按钮、选中标签页指示、进度条、开关激活态、页面头部。同屏大面积渐变区块不超过 2 处，避免喧宾夺主。</p>
+  </div>
+
+  <!-- 02 色彩 -->
+  <div class="sec">
+    <h2>02 色彩体系 <span class="tag">Color</span></h2>
+    <div class="grid cols-3">
+      <div class="card">
+        <h3>品牌色阶 Brand</h3>
+        <p class="desc">以渐变两端色为锚点扩展，5 号为主色</p>
+        <div class="grid" style="grid-template-columns: repeat(8, 1fr); gap: 6px;">
+          <div class="swatch dark-text" style="background:var(--brand-1); min-height:60px;"><span class="val">1</span></div>
+          <div class="swatch dark-text" style="background:var(--brand-2); min-height:60px;"><span class="val">2</span></div>
+          <div class="swatch dark-text" style="background:var(--brand-3); min-height:60px;"><span class="val">3</span></div>
+          <div class="swatch" style="background:var(--brand-4); min-height:60px;"><span class="val">4</span></div>
+          <div class="swatch" style="background:var(--brand-5); min-height:60px;"><span class="val">5</span></div>
+          <div class="swatch" style="background:var(--brand-6); min-height:60px;"><span class="val">6</span></div>
+          <div class="swatch" style="background:var(--brand-7); min-height:60px;"><span class="val">7</span></div>
+          <div class="swatch" style="background:var(--brand-8); min-height:60px;"><span class="val">8</span></div>
+        </div>
+        <p class="mono" style="margin-top:10px">#f2f1ff → #34389b · 主色 #7579ff</p>
+      </div>
+      <div class="card">
+        <h3>强调紫 Accent</h3>
+        <p class="desc">渐变底部色，用于点缀与选中态</p>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div class="swatch" style="background:var(--accent-5); min-height:44px;"><span class="name">accent-5</span><span class="val">#b224ef</span></div>
+          <div class="swatch" style="background:var(--accent-6); min-height:44px;"><span class="name">accent-6</span><span class="val">#9a16d8</span></div>
+          <div class="swatch dark-text" style="background:var(--accent-1); min-height:44px;"><span class="name">accent-1</span><span class="val">#fbefff</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>功能色 Functional</h3>
+        <p class="desc">对齐 TDesign 语义色，微调适配紫色系</p>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div class="swatch" style="background:var(--success); min-height:44px;"><span class="name">成功 Success</span><span class="val">#2ba471</span></div>
+          <div class="swatch" style="background:var(--warning); min-height:44px;"><span class="name">警告 Warning</span><span class="val">#e37318</span></div>
+          <div class="swatch" style="background:var(--error); min-height:44px;"><span class="name">错误 Error</span><span class="val">#d54941</span></div>
+          <div class="swatch" style="background:var(--info); min-height:44px;"><span class="name">信息 Info</span><span class="val">#3461fa</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid cols-5" style="margin-top:16px;">
+      <div class="swatch dark-text" style="background:var(--text-1);"><span class="name">text-1</span><span class="val">主文本</span></div>
+      <div class="swatch dark-text" style="background:#7d8095;"><span class="name">text-2</span><span class="val">次文本 62%</span></div>
+      <div class="swatch dark-text" style="background:#b8bac9;"><span class="name">text-3</span><span class="val">占位 40%</span></div>
+      <div class="swatch dark-text" style="background:var(--border);"><span class="name">border</span><span class="val">#e6e8f2</span></div>
+      <div class="swatch dark-text" style="background:var(--fill-2); border:1px solid var(--border);"><span class="name">fill-2</span><span class="val">组件填充</span></div>
+    </div>
+    <p class="mono" style="margin-top:12px">页面背景 fill-1 = #f4f5fb（冷灰微紫，与渐变呼应）· 卡片背景 = #ffffff · 禁止在渐变色上使用纯黑文本</p>
+  </div>
+
+  <!-- 03 字体 -->
+  <div class="sec">
+    <h2>03 字体与字重 <span class="tag">Typography</span></h2>
+    <div class="card">
+      <div class="type-row"><span class="type-meta">fs-28 / semibold / 标题</span><span style="font-size:28px; font-weight:600;">媒体嗅探下载器</span></div>
+      <div class="type-row"><span class="type-meta">fs-22 / semibold / 页面标题</span><span style="font-size:22px; font-weight:600;">下载管理 · 12 个任务</span></div>
+      <div class="type-row"><span class="type-meta">fs-18 / semibold / 区块标题</span><span style="font-size:18px; font-weight:600;">正在嗅探的资源</span></div>
+      <div class="type-row"><span class="type-meta">fs-16 / medium / 列表主文本</span><span style="font-size:16px; font-weight:500;">episode-03-final.mp4</span></div>
+      <div class="type-row"><span class="type-meta">fs-14 / regular / 正文</span><span style="font-size:14px;">HLS 分片已合并完成，共 128 段，大小 356.2 MB</span></div>
+      <div class="type-row"><span class="type-meta">fs-12 / regular / 辅助</span><span style="font-size:12px; color:var(--text-2);">速度 12.4 MB/s · 剩余 02:31 · 来源 example.com</span></div>
+      <div class="type-row"><span class="type-meta">fs-10 / medium / 角标标签</span><span style="font-size:10px; font-weight:500; color:var(--text-3);">HLS · 1080P · 已完成</span></div>
+    </div>
+    <p class="mono" style="margin-top:12px">字重仅用 400 / 500 / 600 三档；数字（速度、大小、百分比）统一使用 --font-num；行高 1.6，标题行高 1.3</p>
+  </div>
+
+  <!-- 04 圆角 -->
+  <div class="sec">
+    <h2>04 圆角 <span class="tag">Radius</span></h2>
+    <div class="grid cols-5">
+      <div class="card" style="text-align:center;"><div style="width:64px;height:64px;background:var(--brand-1);border:1.5px solid var(--brand-4);border-radius:4px;margin:0 auto 8px;"></div><span class="mono">xs · 4px<br>角标/标签内</span></div>
+      <div class="card" style="text-align:center;"><div style="width:64px;height:64px;background:var(--brand-1);border:1.5px solid var(--brand-4);border-radius:8px;margin:0 auto 8px;"></div><span class="mono">sm · 8px<br>小按钮/输入框</span></div>
+      <div class="card" style="text-align:center;"><div style="width:64px;height:64px;background:var(--brand-1);border:1.5px solid var(--brand-4);border-radius:12px;margin:0 auto 8px;"></div><span class="mono">md · 12px<br>按钮/缩略图</span></div>
+      <div class="card" style="text-align:center;"><div style="width:64px;height:64px;background:var(--brand-1);border:1.5px solid var(--brand-4);border-radius:16px;margin:0 auto 8px;"></div><span class="mono">lg · 16px<br>卡片</span></div>
+      <div class="card" style="text-align:center;"><div style="width:64px;height:64px;background:var(--brand-1);border:1.5px solid var(--brand-4);border-radius:20px;margin:0 auto 8px;"></div><span class="mono">xl · 20px<br>弹层/底部抽屉</span></div>
+    </div>
+  </div>
+
+  <!-- 05 阴影与光影 -->
+  <div class="sec">
+    <h2>05 阴影与光影 <span class="tag">Elevation</span></h2>
+    <div class="grid cols-4">
+      <div><div class="shadow-demo" style="box-shadow:var(--shadow-1);">shadow-1 卡片静置</div><p class="mono" style="margin-top:8px">0 1px 4px / 6%</p></div>
+      <div><div class="shadow-demo" style="box-shadow:var(--shadow-2);">shadow-2 悬浮吸顶</div><p class="mono" style="margin-top:8px">0 4px 14px / 10%</p></div>
+      <div><div class="shadow-demo" style="box-shadow:var(--shadow-3);">shadow-3 弹层对话框</div><p class="mono" style="margin-top:8px">0 8px 28px / 14%</p></div>
+      <div><div class="shadow-demo" style="background:var(--gradient-brand); color:#fff; box-shadow:var(--shadow-brand), var(--shadow-inset);">shadow-brand 渐变光晕</div><p class="mono" style="margin-top:8px">0 6px 18px · 紫 #8465ff 38%</p></div>
+    </div>
+    <p class="mono" style="margin-top:12px">光影原则：阴影全部带紫灰冷调（非纯黑）；渐变元素必有 --shadow-brand 光晕 + --shadow-inset 顶部高光，形成「发光玻璃」质感；层级 = 1 卡片 → 2 悬浮 → 3 弹层</p>
+  </div>
+
+  <!-- 06 动效 -->
+  <div class="sec">
+    <h2>06 交互过渡动画 <span class="tag">Motion</span></h2>
+    <div class="card">
+      <div class="ease-demo"><span class="ease-label">--ease · cubic-bezier(.33,0,.2,1)<br>通用过渡（hover / 颜色 / 面板）</span><div class="ease-track"><div class="ease-dot" style="--demo-ease: cubic-bezier(.33,0,.2,1);"></div></div></div>
+      <div class="ease-demo"><span class="ease-label">--ease-spring · cubic-bezier(.34,1.32,.5,1)<br>弹性（开关滑块 / 按压回弹）</span><div class="ease-track"><div class="ease-dot" style="--demo-ease: cubic-bezier(.34,1.32,.5,1);"></div></div></div>
+    </div>
+    <div class="grid cols-3" style="margin-top:16px;">
+      <div class="card"><h3>时长</h3><p class="mono" style="margin-top:8px">fast 150ms — 按压/hover<br>base 250ms — 展开/开关<br>slow 400ms — 抽屉/页面转场</p></div>
+      <div class="card"><h3>按压点击效果</h3><p class="mono" style="margin-top:8px">渐变按钮: scale(.96) + brightness(.93)<br>卡片/列表项: scale(.98) + 背景微变<br>回弹使用 --ease-spring</p></div>
+      <div class="card"><h3>适用范围</h3><p class="mono" style="margin-top:8px">transform / opacity / box-shadow / background<br>禁止对 width、height、top、left 做过渡</p></div>
+    </div>
+    <div style="margin-top:16px; display:flex; gap:20px; flex-wrap:wrap; align-items:center;">
+      <button class="btn btn-primary"><svg><use href="#i-download"/></svg>试试按住我（渐变按钮）</button>
+      <button class="btn btn-plain"><svg><use href="#i-refresh"/></svg>普通按钮</button>
+      <div class="press-demo"><svg><use href="#i-film"/></svg>卡片按压 scale(.95)</div>
+      <label class="switch" style="margin-left:auto;"><input type="checkbox" checked><span class="track"><span class="thumb"></span></span></label>
+    </div>
+  </div>
+
+  <!-- 07 图标规范 -->
+  <div class="sec">
+    <h2>07 图标规范 <span class="tag">Iconography</span></h2>
+    <div class="icon-grid">
+      <div class="icon-cell"><svg><use href="#i-globe"/></svg><span class="nm">globe</span></div>
+      <div class="icon-cell"><svg><use href="#i-search"/></svg><span class="nm">search</span></div>
+      <div class="icon-cell"><svg><use href="#i-scan"/></svg><span class="nm">scan</span></div>
+      <div class="icon-cell"><svg><use href="#i-download"/></svg><span class="nm">download</span></div>
+      <div class="icon-cell"><svg><use href="#i-cpu"/></svg><span class="nm">cpu</span></div>
+      <div class="icon-cell"><svg><use href="#i-film"/></svg><span class="nm">film</span></div>
+      <div class="icon-cell"><svg><use href="#i-music"/></svg><span class="nm">music</span></div>
+      <div class="icon-cell"><svg><use href="#i-image"/></svg><span class="nm">image</span></div>
+      <div class="icon-cell"><svg><use href="#i-layers"/></svg><span class="nm">layers</span></div>
+      <div class="icon-cell"><svg><use href="#i-play"/></svg><span class="nm">play</span></div>
+      <div class="icon-cell"><svg><use href="#i-pause"/></svg><span class="nm">pause</span></div>
+      <div class="icon-cell"><svg><use href="#i-refresh"/></svg><span class="nm">refresh</span></div>
+      <div class="icon-cell"><svg><use href="#i-check-circle"/></svg><span class="nm">check-circle</span></div>
+      <div class="icon-cell"><svg><use href="#i-alert"/></svg><span class="nm">alert</span></div>
+      <div class="icon-cell"><svg><use href="#i-clock"/></svg><span class="nm">clock</span></div>
+      <div class="icon-cell"><svg><use href="#i-zap"/></svg><span class="nm">zap</span></div>
+      <div class="icon-cell"><svg><use href="#i-trash"/></svg><span class="nm">trash</span></div>
+      <div class="icon-cell"><svg><use href="#i-folder"/></svg><span class="nm">folder</span></div>
+      <div class="icon-cell"><svg><use href="#i-hard-drive"/></svg><span class="nm">hard-drive</span></div>
+      <div class="icon-cell"><svg><use href="#i-settings"/></svg><span class="nm">settings</span></div>
+      <div class="icon-cell"><svg><use href="#i-lock"/></svg><span class="nm">lock</span></div>
+      <div class="icon-cell"><svg><use href="#i-shield"/></svg><span class="nm">shield</span></div>
+      <div class="icon-cell"><svg><use href="#i-shield-fill"/></svg><span class="nm">shield-fill（激活态）</span></div>
+      <div class="icon-cell"><svg><use href="#i-link"/></svg><span class="nm">link</span></div>
+      <div class="icon-cell"><svg><use href="#i-moon"/></svg><span class="nm">moon</span></div>
+      <div class="icon-cell"><svg><use href="#i-more"/></svg><span class="nm">more</span></div>
+      <div class="icon-cell"><svg><use href="#i-chevron-right"/></svg><span class="nm">chevron-right</span></div>
+      <div class="icon-cell"><svg><use href="#i-chevron-left"/></svg><span class="nm">chevron-left</span></div>
+      <div class="icon-cell"><svg><use href="#i-close"/></svg><span class="nm">close</span></div>
+      <div class="icon-cell"><svg><use href="#i-back"/></svg><span class="nm">back</span></div>
+      <div class="icon-cell"><svg><use href="#i-forward"/></svg><span class="nm">forward</span></div>
+      <div class="icon-cell"><svg><use href="#i-chev-down"/></svg><span class="nm">chev-down</span></div>
+      <div class="icon-cell"><svg><use href="#i-tabs"/></svg><span class="nm">tabs</span></div>
+      <div class="icon-cell"><svg><use href="#i-radar"/></svg><span class="nm">radar</span></div>
+      <div class="icon-cell"><svg><use href="#i-history"/></svg><span class="nm">history</span></div>
+      <div class="icon-cell"><svg><use href="#i-star"/></svg><span class="nm">star</span></div>
+      <div class="icon-cell"><svg><use href="#i-star-fill"/></svg><span class="nm">star-fill</span></div>
+      <div class="icon-cell"><svg><use href="#i-check"/></svg><span class="nm">check</span></div>
+      <div class="icon-cell"><svg><use href="#i-plus"/></svg><span class="nm">plus</span></div>
+      <div class="icon-cell"><svg><use href="#i-minus"/></svg><span class="nm">minus</span></div>
+      <div class="icon-cell"><svg><use href="#i-swap"/></svg><span class="nm">swap</span></div>
+      <div class="icon-cell"><svg><use href="#i-file"/></svg><span class="nm">file</span></div>
+      <div class="icon-cell"><svg><use href="#i-key"/></svg><span class="nm">key</span></div>
+      <div class="icon-cell"><svg><use href="#i-clipboard"/></svg><span class="nm">clipboard</span></div>
+      <div class="icon-cell"><svg><use href="#i-filter"/></svg><span class="nm">filter</span></div>
+      <div class="icon-cell"><svg><use href="#i-upload"/></svg><span class="nm">upload</span></div>
+      <div class="icon-cell"><svg><use href="#i-broom"/></svg><span class="nm">broom</span></div>
+      <div class="icon-cell"><svg><use href="#i-rule"/></svg><span class="nm">rule</span></div>
+      <div class="icon-cell"><svg><use href="#i-log"/></svg><span class="nm">log</span></div>
+    </div>
+    <div class="icon-rule">
+      <svg style="width:32px;height:32px;color:var(--brand-5);flex-shrink:0;"><use href="#i-shield"/></svg>
+      <span><b>规范：</b>24×24 viewBox · stroke 1.8px · 圆角端点（round cap/join）· 单色 currentColor · 线性风格全局唯一。<b>禁止 emoji 作为图标</b>。选中/强调场景可切品牌色，底部导航选中项可用渐变填充（fill 描边混合）。图标语义与业务对齐：film=视频、music=音频、image=图片、layers=分片、cpu=转码、scan=嗅探。</span>
+    </div>
+  </div>
+
+  <!-- 08 组件速览 -->
+  <div class="sec">
+    <h2>08 组件速览 <span class="tag">Components</span></h2>
+    <div class="grid cols-3">
+      <div class="card">
+        <h3>按钮</h3>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+          <button class="btn btn-primary btn-sm"><svg><use href="#i-download"/></svg>主操作</button>
+          <button class="btn btn-outline btn-sm">次要</button>
+          <button class="btn btn-danger btn-sm"><svg><use href="#i-trash"/></svg>删除</button>
+          <button class="btn btn-primary btn-sm" disabled>禁用</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>状态标签</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+          <span class="chip" style="background:var(--success-bg); color:var(--success);"><svg><use href="#i-check-circle"/></svg>已完成</span>
+          <span class="chip" style="background:var(--info-bg); color:var(--info);"><svg><use href="#i-download"/></svg>下载中</span>
+          <span class="chip" style="background:var(--warning-bg); color:var(--warning);"><svg><use href="#i-clock"/></svg>排队中</span>
+          <span class="chip" style="background:var(--error-bg); color:var(--error);"><svg><use href="#i-alert"/></svg>失败</span>
+          <span class="chip" style="background:var(--brand-1); color:var(--brand-6);"><svg><use href="#i-film"/></svg>HLS 1080P</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>进度</h3>
+        <div style="margin-top:16px; display:flex; flex-direction:column; gap:12px;">
+          <div class="bar"><i></i></div>
+          <div style="display:flex; justify-content:space-between; font-size:var(--fs-12); color:var(--text-2);">
+            <span>62% · 12.4 MB/s</span><span class="mono">221.1 / 356.2 MB</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 09 布局间距与悬浮规范 -->
+  <div class="sec">
+    <h2>09 布局间距与悬浮规范 <span class="tag">Spacing / Glass</span></h2>
+    <div class="grid cols-3">
+      <div class="card">
+        <h3>间距刻度（基础单位 4px）</h3>
+        <p class="mono" style="margin-top:8px">--sp-1 = 4px  图标-文字 / 紧凑元素间<br>--sp-2 = 8px  chips 间 / 组内行间<br>--sp-3 = 12px 卡片间 / 网格间距<br>--sp-4 = 16px 页面左右内边距（基准）<br>--sp-5 = 20px 分组与页面的额外强调<br>--sp-6 = 24px 卡片内边距（大）<br>--sp-7 = 32px 区块之间<br>--sp-8 = 40px 页面级留白 / 空态左右</p>
+      </div>
+      <div class="card">
+        <h3>页面结构尺寸</h3>
+        <p class="mono" style="margin-top:8px">状态栏高度 44px，左右内边距 16px<br>AppBar 总高 56px（不含状态栏）<br>首页双行工具栏：行高 40 + 36<br>列表行内边距 14px（上下）<br>卡片内边距 16px（固定）<br>FAB 尺寸 56px，距边 20 / 28px<br>抽屉圆角顶部 22px，把手 44×4</p>
+      </div>
+      <div class="card">
+        <h3>外阴影使用场景</h3>
+        <p class="mono" style="margin-top:8px">shadow-1     静置卡片 / 分组<br>shadow-2     悬浮卡片 / 吸顶 / 滑块<br>shadow-3     下拉菜单 / 对话框<br>shadow-drawer 底部抽屉（上抛）<br>shadow-brand  渐变按钮 / FAB 光晕<br>shadow-glass  毛玻璃悬浮控件</p>
+      </div>
+    </div>
+    <div class="icon-rule" style="margin-top:16px;">
+      <svg style="width:32px;height:32px;color:var(--brand-5);flex-shrink:0;"><use href="#i-shield"/></svg>
+      <span><b>毛玻璃（Glassmorphism）：</b>悬浮于内容之上的控件（嗅探 FAB、悬浮工具球）使用 --glass-bg + backdrop-filter: --glass-blur + 1px --glass-border 描边 + --shadow-glass。毛玻璃控件上禁止再用渐变填充；内部图标可用渐变或品牌色。普通页面内控件（按钮、输入框）不用毛玻璃。</span>
+    </div>
+  </div>
+
+  <p class="footer-note">Sniffing Browser Design System · 渐变主题 to top #b224ef → #7579ff · 图标一律 SVG，禁用 emoji · 移动端 / 桌面端设计稿见 mobile/ 与 desktop/</p>
+</div>
+</body>
+</html>

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sniffing Browser · 设计稿导航</title>
+<style>
+:root {
+  --gradient-brand: linear-gradient(to top, #b224ef 0%, #7579ff 100%);
+  --brand-1:#f2f1ff; --brand-6:#5c60ec;
+  --text-1:#1c1e2b; --text-2:rgba(28,30,43,.62); --text-3:rgba(28,30,43,.40); --text-4:rgba(255,255,255,.96);
+  --border:#e6e8f2; --fill-1:#f4f5fb;
+  --font-family:"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",-apple-system,"Segoe UI",sans-serif;
+  --radius-lg:16px; --radius-xl:20px; --radius-md:12px; --radius-full:999px;
+  --shadow-1:0 1px 4px rgba(31,35,58,.06);
+  --shadow-2:0 4px 14px rgba(31,35,58,.10);
+  --shadow-brand:0 6px 18px rgba(132,101,255,.38);
+  --shadow-inset:inset 0 1px 0 rgba(255,255,255,.25);
+  --dur-fast:150ms;
+  --ease:cubic-bezier(.33,0,.2,1);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family:var(--font-family); background:var(--fill-1); color:var(--text-1);
+  min-height:100vh; display:flex; align-items:flex-start; justify-content:center; padding:48px 20px;
+}
+.wrap { max-width:820px; width:100%; }
+.hero {
+  background:var(--gradient-brand); border-radius:var(--radius-xl); padding:36px;
+  color:var(--text-4); box-shadow:var(--shadow-brand), var(--shadow-inset); position:relative; overflow:hidden;
+}
+.hero::after {
+  content:""; position:absolute; right:-60px; top:-80px; width:240px; height:240px; border-radius:50%;
+  background:radial-gradient(circle, rgba(255,255,255,.22), transparent 68%);
+}
+.hero h1 { font-size:24px; font-weight:600; letter-spacing:.5px; }
+.hero p { margin-top:8px; font-size:13px; opacity:.92; }
+.hero .code {
+  display:inline-block; margin-top:14px; font-family:Consolas, monospace; font-size:11px;
+  background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.28);
+  padding:6px 12px; border-radius:var(--radius-md);
+}
+.sec-label {
+  margin:30px 0 12px; font-size:12px; font-weight:600; letter-spacing:1px; color:var(--text-3);
+  display:flex; align-items:center; gap:10px;
+}
+.sec-label::after { content:""; flex:1; height:1px; background:var(--border); }
+.grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; }
+a.tile {
+  display:block; text-decoration:none; background:#fff; border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:20px; box-shadow:var(--shadow-1); color:var(--text-1);
+  transition:transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+a.tile:hover { transform:translateY(-3px); box-shadow:var(--shadow-2); }
+a.tile:active { transform:scale(.97); }
+.tile .ico {
+  width:42px; height:42px; border-radius:var(--radius-md); background:var(--brand-1);
+  display:flex; align-items:center; justify-content:center; margin-bottom:12px;
+}
+.tile .ico svg { width:21px; height:21px; color:var(--brand-6); }
+.tile b { font-size:15px; font-weight:600; display:block; }
+.tile span { font-size:12px; color:var(--text-2); display:block; margin-top:3px; line-height:1.5; }
+.footer { margin-top:30px; text-align:center; font-size:11px; color:var(--text-3); line-height:1.8; }
+</style>
+</head>
+<body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <symbol id="i-standard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+    <symbol id="i-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
+    <symbol id="i-desktop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M9 20.5h6M12 16.5v4"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div class="hero">
+    <h1>Sniffing Browser 设计稿</h1>
+    <p>跨端媒体嗅探下载器 · Android / HarmonyOS NEXT / Windows · 移动端布局 1:1 对照真实截屏（design/screenshot/），样式套用设计标准</p>
+    <span class="code">主题渐变：linear-gradient(to top, #b224ef 0%, #7579ff 100%)</span>
+  </div>
+
+  <div class="sec-label">设计标准</div>
+  <div class="grid">
+    <a class="tile" href="standard.html">
+      <div class="ico"><svg><use href="#i-standard"/></svg></div>
+      <b>Design Tokens 设计标准</b>
+      <span>色彩 / 渐变 / 字体 / 圆角 / 阴影 / 动效 / 按压态 / SVG 图标库</span>
+    </a>
+  </div>
+
+  <div class="sec-label">移动端（390×844 · 共享 mobile/base.css）</div>
+  <div class="grid">
+    <a class="tile" href="mobile/browser.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>首页（起始页）</b>
+      <span>双行工具栏 · 引擎切换下拉 · 快捷入口 · 嗅探 FAB</span>
+    </a>
+    <a class="tile" href="mobile/sniff.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>嗅探资源抽屉</b>
+      <span>把手 · 分类 chips · 缩略图列表 · 下载按钮（有值 / 空态）</span>
+    </a>
+    <a class="tile" href="mobile/tabs.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>多页签抽屉</b>
+      <span>页签卡片网格 · 新建 · 关闭</span>
+    </a>
+    <a class="tile" href="mobile/downloads.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>下载库</b>
+      <span>搜索框 · 文件列表 · ⋮ 菜单入口（空态 / 有值）</span>
+    </a>
+    <a class="tile" href="mobile/parse.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>视频解析</b>
+      <span>粘贴链接 · 解析按钮 · 结果卡（引导 / 结果）</span>
+    </a>
+    <a class="tile" href="mobile/transcode.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>转换任务</b>
+      <span>圆环进度 · MP3/MP4 · 排队 / 中断恢复（空态 / 队列）</span>
+    </a>
+    <a class="tile" href="mobile/settings.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>设置</b>
+      <span>网络 / 下载 / 存储 / 排查 / 代理分组 ·「下载完成后」弹窗</span>
+    </a>
+    <a class="tile" href="mobile/storage.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>存储管理</b>
+      <span>占用明细卡 · 临时分片 / 无主文件清理</span>
+    </a>
+    <a class="tile" href="mobile/sessions.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>登录态管理</b>
+      <span>说明卡 · 按站点查看 · 清除全部 Cookie</span>
+    </a>
+    <a class="tile" href="mobile/rules.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>站点规则</b>
+      <span>规则卡 · 头部字段覆盖 · 新增 FAB（空态 / 有值）</span>
+    </a>
+    <a class="tile" href="mobile/logs.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>运行日志</b>
+      <span>通道折叠卡 · 等宽日志流 · 筛选 / 导出</span>
+    </a>
+    <a class="tile" href="mobile/misc.html">
+      <div class="ico"><svg><use href="#i-mobile"/></svg></div>
+      <b>历史记录 / 收藏夹</b>
+      <span>空态与有值列表</span>
+    </a>
+  </div>
+
+  <div class="sec-label">桌面端（Windows 基线）</div>
+  <div class="grid">
+    <a class="tile" href="javascript:void(0)" style="opacity:.7;cursor:default;">
+      <div class="ico"><svg><use href="#i-desktop"/></svg></div>
+      <b>桌面端设计稿</b>
+      <span>待产出 · 复用同一套 Token</span>
+    </a>
+  </div>
+
+  <p class="footer">图标统一为内联 SVG 线性风格（24px / stroke 1.8 / 圆角端点），全局禁止 emoji 图标<br>移动端布局结构对照 design/screenshot/ 真实截屏，仅重设计视觉样式</p>
+</div>
+</body>
+</html>

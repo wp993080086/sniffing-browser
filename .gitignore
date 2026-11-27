@@ -63,3 +63,7 @@ crash_*.dmp
 
 # WorkBuddy 本地会话与记忆，不入库
 .workbuddy/
+
+# 无关文件
+.trae-html-share-packages
+.screenshots

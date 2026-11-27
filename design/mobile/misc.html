@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>移动端 · 历史记录 / 收藏夹</title>
+<link rel="stylesheet" href="base.css">
+<style>
+/* 页面专属：历史记录 + 收藏夹（结构对照 历史记录.jpg / 收藏夹.jpg，均为空态） */
+/* 有值列表样式（合理推断） */
+.entry-list { padding:6px 16px 90px; }
+.entry {
+  display:flex; align-items:center; gap:12px; padding:14px 0; position:relative; cursor:pointer;
+  transition:transform var(--dur-fast) var(--ease);
+}
+.entry:active { transform:scale(.985); }
+.entry + .entry::before { content:""; position:absolute; top:0; left:44px; right:0; height:1px; background:var(--border); }
+.e-icon { width:34px; height:34px; border-radius:var(--radius-sm); flex-shrink:0; display:flex; align-items:center; justify-content:center; background:var(--fill-2); color:var(--text-2); }
+.e-icon svg { width:16px; height:16px; }
+.e-main { flex:1; min-width:0; }
+.e-title { font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.e-meta { font-size:10px; color:var(--text-3); margin-top:2px; }
+.e-star { width:34px; height:34px; border:none; background:transparent; color:var(--text-3); cursor:pointer; display:flex; align-items:center; justify-content:center; border-radius:50%; transition:transform var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.e-star svg { width:17px; height:17px; }
+.e-star:active { transform:scale(.85); }
+.e-star.on { color:var(--accent-5); }
+.date-label { font-size:11px; color:var(--text-3); font-weight:600; padding:10px 2px 4px; }
+</style>
+</head>
+<body>
+
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="i-signal" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="3" height="7" rx="1"/><rect x="8.5" y="11" width="3" height="10" rx="1"/><rect x="14" y="8" width="3" height="13" rx="1"/><rect x="19.5" y="4" width="3" height="17" rx="1" opacity=".4"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5a12.5 12.5 0 0 1 16 0"/><path d="M7 13a8.5 8.5 0 0 1 10 0"/><path d="M10 16.5a4.5 4.5 0 0 1 4 0"/><circle cx="12" cy="19.5" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="8" width="17" height="8" rx="2"/><path d="M22 11v2"/><rect x="4.5" y="10" width="10" height="4" rx="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 1 2.5 6"/><path d="M3.5 12V7.5M3.5 12H8"/><path d="M12 8v4.5l3 1.8"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5z"/></symbol>
+  <symbol id="i-star-fill" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"/></symbol>
+</defs></svg>
+
+<div class="page-title">移动端设计稿 · <b>历史记录 / 收藏夹</b> · 布局对照「历史记录.jpg / 收藏夹.jpg」</div>
+
+<div class="frames">
+  <!-- 历史记录：空态 + 有值 -->
+  <div>
+    <div class="frame-label"><span class="dot"></span>历史记录 · 空态</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <h1>历史记录</h1>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="empty">
+          <svg class="big"><use href="#i-history"/></svg>
+          <div class="t">还没有浏览记录</div>
+          <div class="d">打开过的网页会出现在这里</div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="frame-label"><span class="dot"></span>历史记录 · 有值</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <h1>历史记录</h1>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="entry-list">
+          <div class="date-label">今天</div>
+          <div class="entry rise">
+            <div class="e-icon"><svg><use href="#i-globe"/></svg></div>
+            <div class="e-main">
+              <div class="e-title">第三集 - 正片播放页</div>
+              <div class="e-meta">m.example.com · 18:07</div>
+            </div>
+          </div>
+          <div class="entry rise">
+            <div class="e-icon"><svg><use href="#i-globe"/></svg></div>
+            <div class="e-main">
+              <div class="e-title">搜索：EP03 1080P</div>
+              <div class="e-meta">百度 · 18:05</div>
+            </div>
+          </div>
+          <div class="date-label">昨天</div>
+          <div class="entry rise">
+            <div class="e-icon"><svg><use href="#i-globe"/></svg></div>
+            <div class="e-main">
+              <div class="e-title">第二集 - 正片播放页</div>
+              <div class="e-meta">m.example.com · 21:02</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+
+  <!-- 收藏夹：空态 + 有值 -->
+  <div>
+    <div class="frame-label"><span class="dot"></span>收藏夹 · 空态</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <h1>收藏夹</h1>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="empty">
+          <svg class="big"><use href="#i-star"/></svg>
+          <div class="t">还没有收藏</div>
+          <div class="d">点地址栏右侧的星标收藏当前页</div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="frame-label"><span class="dot"></span>收藏夹 · 有值</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <h1>收藏夹</h1>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="entry-list">
+          <div class="entry rise">
+            <div class="e-icon"><svg><use href="#i-globe"/></svg></div>
+            <div class="e-main">
+              <div class="e-title">剧集列表 - 第一季</div>
+              <div class="e-meta">m.example.com/season/1</div>
+            </div>
+            <button class="e-star on" aria-label="取消收藏"><svg><use href="#i-star-fill"/></svg></button>
+          </div>
+          <div class="entry rise">
+            <div class="e-icon"><svg><use href="#i-globe"/></svg></div>
+            <div class="e-main">
+              <div class="e-title">下载帮助 - 分片失败怎么办</div>
+              <div class="e-meta">docs.example.com/help</div>
+            </div>
+            <button class="e-star on" aria-label="取消收藏"><svg><use href="#i-star-fill"/></svg></button>
+          </div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

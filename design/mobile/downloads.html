@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>移动端 · 下载库</title>
+<link rel="stylesheet" href="base.css">
+<style>
+/* 页面专属：下载库（结构对照 下载库.jpg 空态 + 合理推断的有值列表） */
+.search-wrap { padding:var(--sp-4) var(--sp-4) var(--sp-2); }
+/* 文件列表 */
+.file-list { padding:6px 16px 90px; }
+.file-item {
+  display:flex; align-items:center; gap:12px; padding:14px 0; position:relative; cursor:pointer;
+  transition:transform var(--dur-fast) var(--ease);
+}
+.file-item:active { transform:scale(.985); }
+.file-item + .file-item::before { content:""; position:absolute; top:0; left:52px; right:0; height:1px; background:var(--border); }
+.f-icon {
+  width:44px; height:44px; border-radius:var(--radius-md); flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+}
+.f-icon svg { width:21px; height:21px; }
+.f-icon.purple { background:var(--brand-1); color:var(--brand-5); }
+.f-icon.violet { background:var(--accent-1); color:#9a16d8; }
+.f-icon.green  { background:var(--success-bg); color:var(--success); }
+.f-icon.blue   { background:var(--info-bg); color:var(--info); }
+.f-main { flex:1; min-width:0; }
+.f-name { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.f-meta { font-size:11px; color:var(--text-3); margin-top:3px; display:flex; gap:8px; align-items:center; }
+.more-btn {
+  width:36px; height:36px; border:none; border-radius:var(--radius-md); cursor:pointer; flex-shrink:0;
+  background:transparent; color:var(--text-2);
+  display:flex; align-items:center; justify-content:center;
+  transition:transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.more-btn svg { width:19px; height:19px; }
+.more-btn:active { transform:scale(.85); background:var(--fill-2); }
+</style>
+</head>
+<body>
+
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="i-signal" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="3" height="7" rx="1"/><rect x="8.5" y="11" width="3" height="10" rx="1"/><rect x="14" y="8" width="3" height="13" rx="1"/><rect x="19.5" y="4" width="3" height="17" rx="1" opacity=".4"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5a12.5 12.5 0 0 1 16 0"/><path d="M7 13a8.5 8.5 0 0 1 10 0"/><path d="M10 16.5a4.5 4.5 0 0 1 4 0"/><circle cx="12" cy="19.5" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="8" width="17" height="8" rx="2"/><path d="M22 11v2"/><rect x="4.5" y="10" width="10" height="4" rx="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.2A2.2 2.2 0 0 1 5.2 5h4l2.2 2.6h7.4A2.2 2.2 0 0 1 21 9.8v8A2.2 2.2 0 0 1 18.8 20H5.2A2.2 2.2 0 0 1 3 17.8V7.2z"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7.5 4v16M16.5 4v16M3 9h4.5M3 15h4.5M16.5 9H21M16.5 15H21"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="17.5" r="3"/><circle cx="17.5" cy="15.5" r="3"/><path d="M10 17.5V6l10.5-2v11.5"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="9.5" r="1.8"/><path d="M21 15.5l-4.5-4.5L7 20.5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5.2" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="18.8" r="1.4"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.2 12.3l2.6 2.6 5-5.6"/></symbol>
+</defs></svg>
+
+<div class="page-title">移动端设计稿 · <b>下载库</b> · 布局对照「下载库.jpg」</div>
+
+<div class="frames">
+  <!-- 空态（1:1 对照截屏） -->
+  <div>
+    <div class="frame-label"><span class="dot"></span>空态</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <h1>下载库</h1>
+        </div>
+      </div>
+      <div class="search-wrap">
+        <div class="field">
+          <svg><use href="#i-search"/></svg>
+          <input placeholder="搜索文件名" spellcheck="false">
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="empty">
+          <svg class="big"><use href="#i-folder"/></svg>
+          <div class="t">下载库还是空的</div>
+          <div class="d">下载完成的文件会出现在这里</div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+
+  <!-- 有值列表 -->
+  <div>
+    <div class="frame-label"><span class="dot"></span>有值 · 下载完成文件</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <h1>下载库</h1>
+        </div>
+      </div>
+      <div class="search-wrap">
+        <div class="field">
+          <svg><use href="#i-search"/></svg>
+          <input placeholder="搜索文件名" spellcheck="false">
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="file-list">
+          <div class="file-item rise">
+            <div class="f-icon purple"><svg><use href="#i-film"/></svg></div>
+            <div class="f-main">
+              <div class="f-name">episode-03-final-1080p.mp4</div>
+              <div class="f-meta"><span class="tag ok">已入库</span><span>356.2 MB</span><span>今天 14:22</span></div>
+            </div>
+            <button class="more-btn" aria-label="更多操作"><svg><use href="#i-more"/></svg></button>
+          </div>
+          <div class="file-item rise">
+            <div class="f-icon violet"><svg><use href="#i-music"/></svg></div>
+            <div class="f-main">
+              <div class="f-name">lecture-recording.mp3</div>
+              <div class="f-meta"><span class="tag ok">已入库</span><span>48.2 MB</span><span>今天 14:22</span></div>
+            </div>
+            <button class="more-btn" aria-label="更多操作"><svg><use href="#i-more"/></svg></button>
+          </div>
+          <div class="file-item rise">
+            <div class="f-icon purple"><svg><use href="#i-film"/></svg></div>
+            <div class="f-main">
+              <div class="f-name">episode-02-final-1080p.mp4</div>
+              <div class="f-meta"><span>352.8 MB</span><span>昨天 21:05</span></div>
+            </div>
+            <button class="more-btn" aria-label="更多操作"><svg><use href="#i-more"/></svg></button>
+          </div>
+          <div class="file-item rise">
+            <div class="f-icon green"><svg><use href="#i-image"/></svg></div>
+            <div class="f-main">
+              <div class="f-name">cover_2048.jpg</div>
+              <div class="f-meta"><span>1.2 MB</span><span>昨天 20:47</span></div>
+            </div>
+            <button class="more-btn" aria-label="更多操作"><svg><use href="#i-more"/></svg></button>
+          </div>
+          <div class="file-item rise">
+            <div class="f-icon blue"><svg><use href="#i-film"/></svg></div>
+            <div class="f-main">
+              <div class="f-name">trailer_preview.mp4</div>
+              <div class="f-meta"><span>12.8 MB</span><span>11-24 18:03</span></div>
+            </div>
+            <button class="more-btn" aria-label="更多操作"><svg><use href="#i-more"/></svg></button>
+          </div>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

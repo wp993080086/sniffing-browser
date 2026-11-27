@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>移动端 · 存储管理</title>
+<link rel="stylesheet" href="base.css">
+<style>
+/* 页面专属：存储管理（结构对照 存储管理.jpg） */
+.usage-card {
+  background:var(--gradient-brand-soft); border:1px solid var(--brand-2);
+  border-radius:var(--radius-lg); padding:var(--sp-4); margin-bottom:16px;
+}
+.usage-card .big { font-size:26px; font-weight:600; color:var(--brand-6); font-family:var(--font-num); }
+.usage-card .sub { font-size:11px; color:var(--text-3); margin-top:2px; }
+.usage-row {
+  display:flex; justify-content:space-between; align-items:baseline;
+  padding:14px 2px; font-size:13px; color:var(--text-1); position:relative;
+}
+.usage-row + .usage-row::before { content:""; position:absolute; top:0; left:0; right:0; height:1px; background:rgba(117,121,255,.14); }
+.usage-row .val { text-align:right; font-size:13px; font-weight:600; color:var(--brand-6); font-family:var(--font-num); }
+.usage-row .val small { display:block; font-size:10px; font-weight:400; color:var(--text-3); font-family:var(--font-family); }
+.bottom-note { font-size:11px; color:var(--text-3); line-height:1.8; padding:14px 2px 0; }
+.bottom-note b { color:var(--text-2); font-weight:600; }
+</style>
+</head>
+<body>
+
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="i-signal" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="3" height="7" rx="1"/><rect x="8.5" y="11" width="3" height="10" rx="1"/><rect x="14" y="8" width="3" height="13" rx="1"/><rect x="19.5" y="4" width="3" height="17" rx="1" opacity=".4"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5a12.5 12.5 0 0 1 16 0"/><path d="M7 13a8.5 8.5 0 0 1 10 0"/><path d="M10 16.5a4.5 4.5 0 0 1 4 0"/><circle cx="12" cy="19.5" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="8" width="17" height="8" rx="2"/><path d="M22 11v2"/><rect x="4.5" y="10" width="10" height="4" rx="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 3.5V7h-3.5"/></symbol>
+  <symbol id="i-chev-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></symbol>
+  <symbol id="i-broom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5l7 7"/><path d="M16 6L9 13"/><path d="M9 13l2 2-4.5 5.5L3 17l6-4z" fill="currentColor" fill-opacity=".12"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16"/><path d="M9 6.5V4.8A1.3 1.3 0 0 1 10.3 3.5h3.4A1.3 1.3 0 0 1 15 4.8v1.7"/><path d="M6.2 6.5l1 13a1.5 1.5 0 0 0 1.5 1.4h6.6a1.5 1.5 0 0 0 1.5-1.4l1-13"/></symbol>
+</defs></svg>
+
+<div class="page-title">移动端设计稿 · <b>存储管理</b> · 布局对照「存储管理.jpg」</div>
+
+<div class="frames">
+  <div>
+    <div class="frame-label"><span class="dot"></span>占用与清理</div>
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <div class="sb-icons"><svg><use href="#i-signal"/></svg><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></div>
+      </div>
+      <div class="appbar">
+        <div class="appbar-row">
+          <button class="icon-btn" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+          <h1>存储管理</h1>
+          <button class="icon-btn" aria-label="刷新"><svg><use href="#i-refresh"/></svg></button>
+        </div>
+      </div>
+      <div class="page-body pad" style="padding-bottom:40px;">
+        <div class="sec-label">占用</div>
+        <div class="usage-card rise">
+          <div class="big">148.6 GB</div>
+          <div class="sub">应用私有目录合计，不含已导出副本</div>
+          <div style="margin-top:10px;">
+            <div class="usage-row"><span>下载 / 转换产物</span><span class="val">136.2 GB<small>312 个文件</small></span></div>
+            <div class="usage-row"><span>其中断点缓存 .part</span><span class="val">2.1 GB<small>5 个文件</small></span></div>
+            <div class="usage-row"><span>无主文件</span><span class="val">8.3 GB<small>12 个文件</small></span></div>
+            <div class="usage-row"><span>临时分片</span><span class="val">2.0 GB<small>1,284 项，其中可清理 1,022 项</small></span></div>
+          </div>
+        </div>
+
+        <div class="sec-label" style="margin-top:var(--sp-2);">清理</div>
+        <div class="group rise">
+          <div class="row">
+            <div class="ri purple"><svg><use href="#i-broom"/></svg></div>
+            <div class="row-main">
+              <div class="row-title">清理可安全清理的临时分片</div>
+              <div class="row-desc">1,022 项 · 1.6 GB</div>
+            </div>
+            <div class="row-value"><svg><use href="#i-chev-right"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="ri red"><svg><use href="#i-trash"/></svg></div>
+            <div class="row-main">
+              <div class="row-title">清理无主文件</div>
+              <div class="row-desc">12 个文件 · 8.3 GB</div>
+            </div>
+            <div class="row-value"><svg><use href="#i-chev-right"/></svg></div>
+          </div>
+        </div>
+
+        <p class="bottom-note">
+          私有目录：<b>/storage/emulated/0/Android/data/com.wp.sniffingbrowser/files/SniffingBrowser</b><br>
+          系统应用信息里的「清除缓存」通常不清这里；「清除数据」或卸载会删掉全部下载、设置和登录态。
+        </p>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
